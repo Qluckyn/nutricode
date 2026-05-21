@@ -1,0 +1,13 @@
+
+#save_dir: GLOBAL_PATH_TO_SYNTH_DATA_DIR
+#datadream_dir: GLOBAL_PATH_TO_DATADREAM_CKPT_DIR
+#model_dir: 
+#    sd2.1: PATH_TO_SD2.1_DIR
+
+# save_dir: /root/autodl-tmp/runs/cv/fold_4/synth_raw
+save_dir: /root/autodl-tmp/datadream_outputs/generated_images
+# datadream_dir: /root/autodl-tmp/runs/cv/fold_4/lora_models
+datadream_dir: /root/autodl-tmp/datadream_outputs/models
+model_dir: 
+    sd2.1: /root/autodl-tmp/models/AI-ModelScope/stable-diffusion-2-1
+    sdxl: /root/autodl-tmp/models/stabilityai/stable-diffusion-xl-base-1.0

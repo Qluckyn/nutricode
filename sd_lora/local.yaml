@@ -1,0 +1,6 @@
+model_dir:
+  sd2.1: /root/autodl-tmp/models/AI-ModelScope/stable-diffusion-2-1
+
+fewshot_data_dir:
+  my_dataset: /root/autodl-tmp/runs/cv/fold_4/real_train_groups
+  my_dataset_binary: /root/autodl-tmp/datadream/data/my_dataset_binary

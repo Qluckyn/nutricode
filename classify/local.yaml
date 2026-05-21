@@ -1,0 +1,20 @@
+wandb_key: null
+metadata_dir: /root/autodl-tmp/metadata
+clip_download_dir: 
+
+# synth_train_data_dir: /root/autodl-tmp/runs/full_train/label_only_gen
+synth_train_data_dir: /root/autodl-tmp/datadream_outputs/generated_images
+# synth_train_data_dir: /root/autodl-tmp/runs/cv/fold_4/synth_raw
+
+
+real_train_data_dir:
+  # my_dataset: /root/autodl-tmp/datadream/data/my_dataset_binary/seed0
+  my_dataset: /root/autodl-tmp/runs/cv/fold_4/my_dataset_binary/seed0
+
+real_test_data_dir:
+  my_dataset: /root/autodl-tmp/test_data
+
+real_train_fewshot_data_dir:
+  # my_dataset: /root/autodl-tmp/datadream/data/my_dataset_binary
+  # my_dataset: /root/autodl-tmp/runs/cv/fold_4/my_dataset_binary
+  my_dataset: /root/autodl-tmp/runs/cv/fold_4/my_dataset_binary

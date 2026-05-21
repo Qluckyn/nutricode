@@ -1,0 +1,14 @@
+wandb_key: null
+metadata_dir: /root/autodl-tmp/metadata
+clip_download_dir: 
+
+synth_train_data_dir: /root/autodl-tmp/runs/cv/fold_3/synth_filtered
+
+real_train_data_dir:
+  my_dataset: /root/autodl-tmp/runs/cv/fold_3/classify/real_train
+
+real_test_data_dir:
+  my_dataset: /root/autodl-tmp/runs/cv/fold_3/classify/real_val
+
+real_train_fewshot_data_dir:
+  my_dataset: /root/autodl-tmp/runs/cv/fold_3/real_train_groups
