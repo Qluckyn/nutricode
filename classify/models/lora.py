@@ -2,6 +2,8 @@
 Code from https://github.com/vturrisi/disef/blob/main/fine-tune/src/adaptation/lora.py
 """
 
+import math
+import torch
 import loralib as lora
 import torch.nn as nn
 import torch.nn.functional as F
@@ -62,6 +64,8 @@ class LoRAMultiHeadAttention(nn.Module):
         self.scaled_dot_product_attention = F.scaled_dot_product_attention
 
         self.proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.capture_attention = False
+        self.captured_attn = None
 
     def forward(
         self,
@@ -148,7 +152,20 @@ class LoRAMultiHeadAttention(nn.Module):
         k = k.view(bsz, self.num_heads, src_len, self.head_dim)
         v = v.view(bsz, self.num_heads, src_len, self.head_dim)
 
-        attn_output = self.scaled_dot_product_attention(q, k, v, attn_mask, dropout_p, is_causal)
+        if self.capture_attention:
+            attn_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+            if attn_mask is not None:
+                attn_scores = attn_scores + attn_mask
+            attn_weights = torch.softmax(attn_scores, dim=-1)
+            if dropout_p > 0:
+                attn_weights = F.dropout(attn_weights, p=dropout_p, training=self.training)
+            self.captured_attn = attn_weights
+            if attn_weights.requires_grad:
+                attn_weights.retain_grad()
+            attn_output = torch.matmul(attn_weights, v)
+        else:
+            self.captured_attn = None
+            attn_output = self.scaled_dot_product_attention(q, k, v, attn_mask, dropout_p, is_causal)
         attn_output = attn_output.permute(2, 0, 1, 3).contiguous().view(bsz * tgt_len, embed_dim)
         attn_output = self.proj(attn_output)
         attn_output = attn_output.view(tgt_len, bsz, attn_output.size(1))
