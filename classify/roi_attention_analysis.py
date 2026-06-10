@@ -1,3 +1,4 @@
+# 可解释性分析的三个验证
 import argparse
 import csv
 import json
@@ -19,10 +20,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "classify"))
 sys.path.insert(0, str(PROJECT_ROOT / "passing"))
 
+from data import get_transforms
 from models.clip import CLIP as NutriCLIP
 from util_data import SUBSET_NAMES
 from qc_filter import (
     ClinicalFeatureExtractor,
+    FACE_OVAL,
     LEFT_TEMPORAL,
     RIGHT_TEMPORAL,
     LEFT_ORBITAL,
@@ -35,6 +38,7 @@ from qc_filter import (
     INSIGHTFACE_DET_SIZE,
 )
 
+# 真实+合成过滤（NutriDiff）
 DEFAULT_CHECKPOINT_PATH = (
     "/root/autodl-tmp/runs/ablation/classify_outputs/"
     "clip_real_plus_synth_qc_pool0.7_nipc330_lr1e-5_nomix/"
@@ -42,7 +46,14 @@ DEFAULT_CHECKPOINT_PATH = (
     "shot20_seed0_template1_ddlr0.0001_ddep240_lbd0.8/"
     "lr1e-05_wd0.0001_mixuag/best_checkpoint.pth"
 )
-
+# 只用真实数据（Baseline）
+# DEFAULT_CHECKPOINT_PATH = (
+#     "/root/autodl-tmp/runs/ablation/classify_outputs/clip_real_plus_synth_raw_pool0.7_nipc330_lr1e-5_nomix/my_dataset/clipViT-B/16/n_img_per_cls_500/baseline_shot20_seed0/lr1e-05_wd0.0001_mixuag/best_checkpoint.pth"
+# )
+# 真实+合成不过滤（DataDream）
+# DEFAULT_CHECKPOINT_PATH = (
+#     "/root/autodl-tmp/runs/ablation/classify_outputs/clip_real_plus_synth_raw_pool0.7_nipc330_lr1e-5_nomix/my_dataset/clipViT-B/16/n_img_per_cls_500/sd2.1/shot20_seed0_template1_ddlr0.0001_ddep240_lbd0.8/lr1e-05_wd0.0001_mixuag/best_checkpoint.pth"
+# )
 
 DEFAULT_TEST_DIR = "/root/autodl-tmp/test_data"
 DEFAULT_OUTPUT_DIR = "/root/autodl-tmp/runs/vis/roi_attention_analysis"
@@ -66,15 +77,8 @@ ROI_COLORS = {
 
 
 def get_transform():
-    return transforms.Compose([
-        transforms.Resize(224, interpolation=transforms.InterpolationMode.BICUBIC),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean=(0.48145466, 0.4578275, 0.40821073),
-            std=(0.26862954, 0.26130258, 0.27577711),
-        ),
-    ])
+    _, test_transform = get_transforms("clip")
+    return test_transform
 
 
 def get_tensor_transform_only():
@@ -95,6 +99,11 @@ def load_model(checkpoint_path, clip_download_dir=None):
         clip_download_dir=clip_download_dir,
         clip_version="ViT-B/16",
     )
+    # loralib.MergedLinear merges LoRA weights when switching to eval().
+    # Match the checkpoint state used by main.py detailed prediction export:
+    # eval first, then load weights. Loading first and then eval() would merge
+    # LoRA again and change the global probabilities.
+    model = model.to(DEVICE).eval()
     ckpt = torch.load(checkpoint_path, map_location=DEVICE, weights_only=False)
     incompatible = model.load_state_dict(ckpt["model"], strict=False)
     if incompatible.missing_keys or incompatible.unexpected_keys:
@@ -103,7 +112,7 @@ def load_model(checkpoint_path, clip_download_dir=None):
             print(f"[WARN] missing_keys: {incompatible.missing_keys[:10]}")
         if incompatible.unexpected_keys:
             print(f"[WARN] unexpected_keys: {incompatible.unexpected_keys[:10]}")
-    return model.to(DEVICE).eval()
+    return model
 
 
 def preprocess_for_model_and_roi(img_pil, transform):
@@ -307,6 +316,56 @@ class DynamicROIAttentionAnalyzer:
             "jawline": np.maximum(l_jaw, r_jaw),
         }
 
+    @staticmethod
+    def _bbox_to_expanded_mask(shape, bbox_xyxy, expand=1.10):
+        h, w = shape[:2]
+        x1, y1, x2, y2 = [float(v) for v in bbox_xyxy]
+        cx = 0.5 * (x1 + x2)
+        cy = 0.5 * (y1 + y2)
+        bw = max(0.0, x2 - x1) * float(expand)
+        bh = max(0.0, y2 - y1) * float(expand)
+
+        x0 = max(0, int(np.floor(cx - bw / 2.0)))
+        y0 = max(0, int(np.floor(cy - bh / 2.0)))
+        x3 = min(w, int(np.ceil(cx + bw / 2.0)))
+        y3 = min(h, int(np.ceil(cy + bh / 2.0)))
+
+        mask = np.zeros(shape[:2], dtype=np.uint8)
+        if x3 > x0 and y3 > y0:
+            mask[y0:y3, x0:x3] = 1
+        return mask
+
+    def generate_face_mask(self, image_np, view_name="front"):
+        extractor = self._extractor_for_view(view_name)
+        landmarks = extractor.get_landmarks(image_np)
+        if landmarks is not None:
+            face_mask = extractor.get_mask_from_points(
+                image_np.shape,
+                landmarks[FACE_OVAL],
+                mode="hull",
+            )
+            if np.any(face_mask):
+                return face_mask, "facemesh"
+
+        if getattr(extractor, "_face_analyzer", None) is None:
+            extractor._init_insightface()
+        if getattr(extractor, "_face_analyzer", None) is None:
+            return None, "failed"
+
+        try:
+            image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+            faces = extractor._insightface_get_faces(image_bgr)
+            bbox = extractor._select_largest_bbox(faces) if faces else None
+        except Exception:
+            bbox = None
+
+        if bbox is None:
+            return None, "failed"
+        face_mask = self._bbox_to_expanded_mask(image_np.shape, bbox, expand=1.10)
+        if not np.any(face_mask):
+            return None, "failed"
+        return face_mask, "insightface_bbox"
+
 
 def compute_roi_map_scores(attn_map, roi_masks):
     scores = {}
@@ -338,6 +397,49 @@ def compute_all_attribution_scores(maps, roi_masks):
         pos = scores.get(f"attr_pos_roi_{roi_name}_enrichment", 0.0)
         neg = scores.get(f"attr_neg_roi_{roi_name}_enrichment", 0.0)
         scores[f"attr_signed_roi_{roi_name}_balance"] = float(pos - neg)
+    return scores
+
+
+def compute_face_background_attribution_scores(maps, face_mask, face_mask_source, eps=1e-8):
+    scores = {"face_mask_source": face_mask_source}
+    if face_mask is None or not np.any(face_mask):
+        scores["face_mask_area_ratio"] = None
+        for kind in ("abs", "pos", "neg"):
+            scores[f"face_attr_sum_{kind}"] = None
+            scores[f"background_attr_sum_{kind}"] = None
+            scores[f"face_attr_ratio_{kind}"] = None
+            scores[f"background_attr_ratio_{kind}"] = None
+        scores["face_attr_density_abs"] = None
+        scores["background_attr_density_abs"] = None
+        scores["face_background_enrichment_abs"] = None
+        return scores
+
+    for kind in ("abs", "pos", "neg"):
+        attn = np.asarray(maps[kind], dtype=np.float32)
+        mask_resized = cv2.resize(
+            face_mask.astype(np.uint8),
+            (attn.shape[1], attn.shape[0]),
+            interpolation=cv2.INTER_NEAREST,
+        ) > 0
+        if kind == "abs":
+            scores["face_mask_area_ratio"] = float(np.mean(mask_resized))
+
+        face_pixels = int(np.sum(mask_resized))
+        background_pixels = int(np.sum(~mask_resized))
+        face_sum = float(np.sum(attn[mask_resized])) if face_pixels > 0 else 0.0
+        background_sum = float(np.sum(attn[~mask_resized])) if background_pixels > 0 else 0.0
+        face_ratio = face_sum / (face_sum + background_sum + eps)
+        scores[f"face_attr_sum_{kind}"] = face_sum
+        scores[f"background_attr_sum_{kind}"] = background_sum
+        scores[f"face_attr_ratio_{kind}"] = float(face_ratio)
+        scores[f"background_attr_ratio_{kind}"] = float(1.0 - face_ratio)
+
+        if kind == "abs":
+            face_density = face_sum / (face_pixels + eps)
+            background_density = background_sum / (background_pixels + eps)
+            scores["face_attr_density_abs"] = float(face_density)
+            scores["background_attr_density_abs"] = float(background_density)
+            scores["face_background_enrichment_abs"] = float(face_density / (background_density + eps))
     return scores
 
 
@@ -476,6 +578,12 @@ def analyze_image_target(
         return None
 
     attr_scores = compute_all_attribution_scores(maps, roi_masks)
+    face_mask, face_mask_source = roi_analyzer.generate_face_mask(img_np, view_name=view_name)
+    face_background_scores = compute_face_background_attribution_scores(
+        maps,
+        face_mask,
+        face_mask_source,
+    )
     occ_scores = {}
     if run_occlusion:
         occ_scores = run_roi_occlusion(model, img_np, roi_masks, target_idx, fill=occlusion_fill)
@@ -510,6 +618,7 @@ def analyze_image_target(
         "is_correct": bool(true_class == CLASS_NAMES[pred_idx]) if true_class else None,
     }
     record.update(attr_scores)
+    record.update(face_background_scores)
     record.update(occ_scores)
     return record
 
@@ -685,6 +794,172 @@ def save_group_summaries(records, output_dir, run_occlusion=False):
     save_summary_plots(records, output_dir, run_occlusion=run_occlusion)
 
 
+FACE_BACKGROUND_VALUE_KEYS = [
+    "face_mask_area_ratio",
+    "face_attr_sum_abs",
+    "background_attr_sum_abs",
+    "face_attr_ratio_abs",
+    "background_attr_ratio_abs",
+    "face_attr_density_abs",
+    "background_attr_density_abs",
+    "face_background_enrichment_abs",
+    "face_attr_sum_pos",
+    "background_attr_sum_pos",
+    "face_attr_ratio_pos",
+    "background_attr_ratio_pos",
+    "face_attr_sum_neg",
+    "background_attr_sum_neg",
+    "face_attr_ratio_neg",
+    "background_attr_ratio_neg",
+]
+
+
+def _valid_face_background_records(records):
+    return [
+        row for row in records
+        if row.get("face_attr_ratio_abs") is not None
+        and np.isfinite(float(row.get("face_attr_ratio_abs")))
+    ]
+
+
+def _aggregate_face_background(records, group_by=None):
+    group_by = group_by or []
+    groups = defaultdict(list)
+    if not group_by:
+        groups[("all",)].extend(records)
+    else:
+        for row in records:
+            groups[tuple(row.get(k, "") for k in group_by)].append(row)
+
+    rows = []
+    for key, items in sorted(groups.items(), key=lambda kv: tuple(str(x) for x in kv[0])):
+        out = {
+            "group_by": "+".join(group_by) if group_by else "all",
+            "group_value": "all" if not group_by else "|".join(str(x) for x in key),
+            "n": len(items),
+        }
+        if group_by:
+            for i, group_key in enumerate(group_by):
+                out[group_key] = key[i]
+        for value_key in FACE_BACKGROUND_VALUE_KEYS:
+            vals = []
+            for item in items:
+                value = item.get(value_key)
+                if value is None:
+                    continue
+                value = float(value)
+                if np.isfinite(value):
+                    vals.append(value)
+            out[f"{value_key}_mean"] = float(np.mean(vals)) if vals else None
+            out[f"{value_key}_std"] = float(np.std(vals, ddof=1)) if len(vals) > 1 else None
+        rows.append(out)
+    return rows
+
+
+def _write_face_background_markdown(records, summary_rows, path):
+    path = Path(path)
+    overall = next((row for row in summary_rows if row.get("group_by") == "all"), {})
+    top_background = sorted(
+        records,
+        key=lambda row: float(row.get("background_attr_ratio_abs") or -1.0),
+        reverse=True,
+    )[:10]
+
+    def fmt(value, digits=4):
+        if value is None:
+            return "NA"
+        try:
+            value = float(value)
+        except Exception:
+            return "NA"
+        if not np.isfinite(value):
+            return "NA"
+        return f"{value:.{digits}f}"
+
+    lines = [
+        "# Face/Background Attribution Ratio Analysis",
+        "",
+        "本分析用于验证 CLIP-LoRA 的 attribution 是否主要集中在人脸区域，而不是背景区域。face mask 优先由 MediaPipe FaceMesh 的 face oval convex hull 生成；FaceMesh 失败时，使用 InsightFace 最大人脸 bbox，并向外扩展 10%。",
+        "",
+        "## Overall",
+        "",
+        f"- 有效 target-image records: {len(records)}",
+        f"- face_attr_ratio_abs: {fmt(overall.get('face_attr_ratio_abs_mean'))} ± {fmt(overall.get('face_attr_ratio_abs_std'))}",
+        f"- background_attr_ratio_abs: {fmt(overall.get('background_attr_ratio_abs_mean'))} ± {fmt(overall.get('background_attr_ratio_abs_std'))}",
+        f"- face_mask_area_ratio: {fmt(overall.get('face_mask_area_ratio_mean'))} ± {fmt(overall.get('face_mask_area_ratio_std'))}",
+        f"- face_attr_density_abs: {fmt(overall.get('face_attr_density_abs_mean'))} ± {fmt(overall.get('face_attr_density_abs_std'))}",
+        f"- background_attr_density_abs: {fmt(overall.get('background_attr_density_abs_mean'))} ± {fmt(overall.get('background_attr_density_abs_std'))}",
+        f"- face_background_enrichment_abs: {fmt(overall.get('face_background_enrichment_abs_mean'))} ± {fmt(overall.get('face_background_enrichment_abs_std'))}",
+        "",
+        "## Top 10 Background Attribution Cases",
+        "",
+        "| rank | image | true_class | target_class | predicted_class | view | background_abs | face_abs | mask_source |",
+        "|---:|---|---|---|---|---|---:|---:|---|",
+    ]
+    for rank, row in enumerate(top_background, start=1):
+        lines.append(
+            "| {rank} | {image} | {true_class} | {target_class} | {predicted_class} | {view} | {bg} | {face} | {source} |".format(
+                rank=rank,
+                image=row.get("image_path", ""),
+                true_class=row.get("true_class", ""),
+                target_class=row.get("target_class", ""),
+                predicted_class=row.get("predicted_class", ""),
+                view=row.get("view", ""),
+                bg=fmt(row.get("background_attr_ratio_abs")),
+                face=fmt(row.get("face_attr_ratio_abs")),
+                source=row.get("face_mask_source", ""),
+            )
+        )
+    lines.extend([
+        "",
+        "## Outputs",
+        "",
+        "- `face_background_attribution_records.csv`: 每张图、每个 target class 的 face/background attribution sum 与 ratio。",
+        "- `face_background_attribution_summary.csv`: 按 all、true_class、view、is_correct、predicted_class 分组的 mean/std。",
+        "",
+    ])
+    path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"[INFO] saved: {path}")
+
+
+def save_face_background_outputs(records, output_dir):
+    output_dir = Path(output_dir)
+    fb_records = _valid_face_background_records(records)
+    if not fb_records:
+        print("[WARN] no valid face/background attribution records to save")
+        return
+
+    record_fields = [
+        "true_class",
+        "image_name",
+        "subject_id",
+        "view",
+        "target_class",
+        "predicted_class",
+        "is_correct",
+        "malnourished_probability",
+        "normal_probability",
+        "face_mask_source",
+        *FACE_BACKGROUND_VALUE_KEYS,
+        "image_path",
+    ]
+    save_csv(
+        [{k: row.get(k) for k in record_fields} for row in fb_records],
+        output_dir / "face_background_attribution_records.csv",
+    )
+
+    summary_rows = []
+    summary_rows.extend(_aggregate_face_background(fb_records, []))
+    for group_by in (["true_class"], ["view"], ["is_correct"], ["predicted_class"]):
+        summary_rows.extend(_aggregate_face_background(fb_records, group_by))
+    save_csv(summary_rows, output_dir / "face_background_attribution_summary.csv")
+    _write_face_background_markdown(
+        fb_records,
+        summary_rows,
+        output_dir / "face_background_attribution_analysis.md",
+    )
+
+
 def mean_for(records, true_class, target_class, key):
     vals = [r.get(key) for r in records if r.get("true_class") == true_class and r.get("target_class") == target_class]
     vals = [float(v) for v in vals if v is not None and np.isfinite(float(v))]
@@ -757,6 +1032,7 @@ def run_single(args, model, explainer, transform, roi_analyzer):
             print(json.dumps(record, indent=2, ensure_ascii=False))
     if records:
         save_records(records, args.output_dir)
+        save_face_background_outputs(records, args.output_dir)
 
 
 def run_batch(args, model, explainer, transform, roi_analyzer):
@@ -782,6 +1058,7 @@ def run_batch(args, model, explainer, transform, roi_analyzer):
                 records.append(record)
     save_records(records, args.output_dir)
     save_group_summaries(records, args.output_dir, run_occlusion=args.run_occlusion)
+    save_face_background_outputs(records, args.output_dir)
     print(f"[INFO] completed {len(records)} target-image records")
 
 

@@ -1,5 +1,4 @@
-
-
+# 修改了analyze_predictions() 的输出
 import os
 import sys
 import json
@@ -446,9 +445,34 @@ def get_accuracy(output, target, topk=(1,)):
 
 
 def _parse_subject_id_from_path(path: str) -> str:
+    if not path:
+        return ""
     name = os.path.basename(path)
     m = re.match(r"^(\d+)_", name)
     return m.group(1) if m else ""
+
+
+def _parse_view_from_path(path: str) -> str:
+    if not path:
+        return ""
+
+    name = os.path.basename(path)
+    m = re.match(r"^\d+_(01|02|03)(?:$|[_\-.])", name)
+    if m:
+        return {
+            "01": "front",
+            "02": "left",
+            "03": "right",
+        }[m.group(1)]
+
+    path_lower = path.lower()
+    if "front" in path_lower:
+        return "front"
+    if "left" in path_lower:
+        return "left"
+    if "right" in path_lower:
+        return "right"
+    return ""
 
 
 def _binary_auc_score(y_true, y_score):
@@ -579,6 +603,7 @@ def analyze_predictions(args, model, data_loader):
         pos_idx = class_names.index("malnourished_face")
     else:
         pos_idx = 1 if args.n_classes > 1 else 0
+    normal_idx = class_names.index("normal_face") if "normal_face" in class_names else None
     y_true_img = (all_targets == pos_idx).astype(int)
     y_score_img = all_probs[:, pos_idx]
     image_level_metrics = _binary_metrics(y_true_img, y_score_img)
@@ -627,17 +652,45 @@ def analyze_predictions(args, model, data_loader):
     
     # 创建所有样本的详细结果
     all_sample_results = []
+    sample_paths_aligned = sample_paths is not None and len(sample_paths) == len(all_preds)
+    parsed_subject_count = 0
+    parsed_view_count = 0
+    view_counts = {"front": 0, "left": 0, "right": 0, "unknown": 0}
+
     for i, (pred, target) in enumerate(zip(all_preds, all_targets)):
         is_correct = (pred == target)
         confidence = all_probs[i][pred] * 100
+        image_path = sample_paths[i] if sample_paths_aligned else ""
+        subject_id = _parse_subject_id_from_path(image_path)
+        view = _parse_view_from_path(image_path)
+        true_class_name = class_names[target]
+        predicted_class_name = class_names[pred]
+        normal_prob = float(all_probs[i][normal_idx]) if normal_idx is not None else None
+
+        if subject_id:
+            parsed_subject_count += 1
+        if view:
+            parsed_view_count += 1
+            view_counts[view] = view_counts.get(view, 0) + 1
+        else:
+            view_counts["unknown"] += 1
+
         sample_result = {
             "sample_id": i,
             "true_label": int(target),
-            "true_class_name": class_names[target],
+            "true_class_name": true_class_name,
             "predicted_label": int(pred),
-            "predicted_class_name": class_names[pred],
+            "predicted_class_name": predicted_class_name,
             "is_correct": bool(is_correct),
             "confidence": float(confidence),
+            "image_path": image_path,
+            "subject_id": subject_id,
+            "view": view,
+            "positive_class_name": "malnourished_face",
+            "positive_true_label": int(true_class_name == "malnourished_face"),
+            "positive_pred_label": int(predicted_class_name == "malnourished_face"),
+            "malnourished_prob": float(all_probs[i][pos_idx]),
+            "normal_prob": normal_prob,
             "all_class_probabilities": {class_names[j]: float(all_probs[i][j] * 100) for j in range(args.n_classes)}
         }
         all_sample_results.append(sample_result)
@@ -658,6 +711,19 @@ def analyze_predictions(args, model, data_loader):
     print(f"{'样本序号':<10}{'真实标签':<15}{'预测标签':<15}{'置信度':<10}")
     for i, target, pred, conf in high_conf_errors[:5]:
         print(f"{i:<10}{class_names[target]:<15}{class_names[pred]:<15}{conf:.2f}%")
+
+    print("\n样本路径与视角解析自检:")
+    print(f"sample_paths 可用: {sample_paths is not None}")
+    print(f"sample_paths 数量等于预测数量: {sample_paths_aligned} ({len(sample_paths) if sample_paths is not None else 0}/{len(all_preds)})")
+    print(f"成功解析 subject_id 的样本数: {parsed_subject_count}/{len(all_preds)}")
+    print(f"成功解析 view 的样本数: {parsed_view_count}/{len(all_preds)}")
+    print(
+        "视角数量: "
+        f"front={view_counts.get('front', 0)}, "
+        f"left={view_counts.get('left', 0)}, "
+        f"right={view_counts.get('right', 0)}, "
+        f"unknown={view_counts.get('unknown', 0)}"
+    )
     
     # 将所有结果保存到JSON文件
     detailed_results = {

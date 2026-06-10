@@ -33,13 +33,28 @@
 /root/autodl-tmp/datadream_outputs/generated_images/
 └── my_dataset/sd2.1/gs3.5_nis50/shot20_seed0_template1_lr0.0001_ep240/
     ├── train/                        # 原始合成图（每类3000张）
-    │   ├── malnourished_face/
-    │   └── normal_face/
+    │   ├── malnourished_face/        # 三个malnourished子组合并
+    │   └── normal_face/              # 三个malnourished子组合并
     └── filtered_train/               # 过滤后合成图
-        ├── malnourished_face/        # 408张
-        └── normal_face/              # 456张
+        ├── malnourished_face/        # 408张,三个malnourished子组合并
+        └── normal_face/              # 456张,三个malnourished子组合并
 
-/root/autodl-tmp/test_data/           # 测试集
+/root/autodl-tmp/test_data/           # 测试集(每类下都有27个人，每人对应3个视角的图片(01表示正脸,02表示左45度脸,03表示右45度脸))
+|____malnourished_face/
+|    |____166_01.png
+|    |____166_02.png
+|    |____166_03.png
+|    |____169_01.png
+|    |____169_02.png
+|    |____169_03.png
+|____normal_face/
+     |____06_01.png
+     |____06_02.png
+     |____06_03.png
+     |____100_01.png
+     |____100_02.png
+     |____100_03.png
+
 ```
 
 ---
