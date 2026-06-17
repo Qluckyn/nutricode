@@ -38,6 +38,7 @@ class CLIP(nn.Module):
         is_lora_text,
         clip_download_dir="model_clip",
         clip_version="ViT-B/16",
+        use_roi_aux_head: bool = False,
     ):
         super().__init__()
         self.dataset = dataset
@@ -45,6 +46,7 @@ class CLIP(nn.Module):
         self.is_lora_image = is_lora_image
         self.is_lora_text = is_lora_text
         self.clip_version = clip_version
+        self.use_roi_aux_head = use_roi_aux_head
 
         # TODO: change the number of templates
         self.templates = TEMPLATES_SMALL[:1]
@@ -73,6 +75,15 @@ class CLIP(nn.Module):
             )
 
         self.register_buffer("tokenized_text", self.tokenize_text())
+
+        if self.use_roi_aux_head:
+            # ROI 辅助头预测 [temporal, orbital, malar, jawline] 4 维描述符。
+            image_feature_dim = int(getattr(self.clip.visual, "output_dim", 512))
+            self.roi_head = nn.Sequential(
+                nn.Linear(image_feature_dim, 128),
+                nn.ReLU(),
+                nn.Linear(128, 4),
+            )
 
         # enable checkpointing for text transformer
         # datasets with more classes simply go OOM if we don't do this
@@ -164,7 +175,10 @@ class CLIP(nn.Module):
 
     def learnable_params(self):
 #         return [{"name": "all", "params": [p for p in self.clip.parameters() if p.requires_grad]}]
-        return [p for p in self.clip.parameters() if p.requires_grad]
+        params = [p for p in self.clip.parameters() if p.requires_grad]
+        if self.use_roi_aux_head:
+            params += list(self.roi_head.parameters())
+        return params
 
     def forward_image(
         self,
@@ -214,6 +228,17 @@ class CLIP(nn.Module):
             logits_per_image = logit_scale * torch.stack(
                 [image_feats[i] @ text_feats[i].t() for i in range(image_feats.shape[0])]
             )
+
+        if self.use_roi_aux_head:
+            roi_pred = self.roi_head(image_feats)
+            if output_features:
+                return {
+                    "logits": logits_per_image,
+                    "roi_pred": roi_pred,
+                    "image_feats": image_feats,
+                    "text_feats": text_feats,
+                }
+            return logits_per_image, roi_pred
 
         if output_features:
             return {

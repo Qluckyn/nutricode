@@ -30,12 +30,11 @@ from torchvision.datasets.folder import default_loader, IMG_EXTENSIONS
 
 class FixedLabelImageFolder(Dataset):
     """强制按给定的class_names顺序分配标签索引的数据集类"""
-    def __init__(self, root, transform, class_names, descriptor_cache=None):
+    def __init__(self, root, transform, class_names):
         self.root = root
         self.transform = transform
         self.class_names = class_names  # 传入SUBSET_NAMES
         self.class_to_idx = {name: i for i, name in enumerate(class_names)}  # 强制映射
-        self.descriptor_cache = descriptor_cache  # ROI 描述符缓存，默认关闭以保持兼容
         
         # 收集所有样本路径和标签
         self.samples = []
@@ -58,13 +57,6 @@ class FixedLabelImageFolder(Dataset):
         image = default_loader(img_path).convert('RGB')  # 加载并转为RGB
         if self.transform is not None:
             image = self.transform(image)
-        if self.descriptor_cache is not None:
-            desc = self.descriptor_cache.get(img_path)
-            if desc is not None:
-                desc_tensor = torch.tensor(desc, dtype=torch.float32)
-            else:
-                desc_tensor = torch.full((4,), float('nan'))
-            return image, label, desc_tensor
         return image, label
 
     def __len__(self):
@@ -212,13 +204,11 @@ class DatasetSynthImage(Dataset):
         n_shot=0,
         real_train_fewshot_data_dir='', 
         is_pooled_fewshot=False, 
-        descriptor_cache=None,
         **kwargs
     ):
         self.synth_train_data_dir = synth_train_data_dir
         self.transform = transform
         self.is_pooled_fewshot = is_pooled_fewshot
-        self.descriptor_cache = descriptor_cache
         
         self.image_paths = []
         self.image_labels = []
@@ -259,17 +249,6 @@ class DatasetSynthImage(Dataset):
         image = Image.open(image_path).convert('RGB')
         image = self.transform(image)
         is_real = int(self.is_real_flags[idx])
-
-        if self.descriptor_cache is not None:
-            # 描述符缺失时用 NaN 标记，训练时只跳过辅助损失。
-            desc = self.descriptor_cache.get(image_path)
-            if desc is not None:
-                desc_tensor = torch.tensor(desc, dtype=torch.float32)
-            else:
-                desc_tensor = torch.full((4,), float('nan'))
-            if self.is_pooled_fewshot:
-                return image, image_label, is_real, desc_tensor
-            return image, image_label, desc_tensor
 
         if self.is_pooled_fewshot:
             return image, image_label, is_real
@@ -489,7 +468,6 @@ def get_data_loader(
     real_train_fewshot_data_dir='',
     is_pooled_fewshot=False,
     model_type=None,
-    descriptor_cache=None,
 ):
     train_transform, test_transform = get_transforms(model_type)
     train_loader = None
@@ -570,8 +548,7 @@ def get_data_loader(
             train_dataset = FixedLabelImageFolder(
                 root=real_train_data_dir,
                 transform=train_transform if is_rand_aug else test_transform,
-                class_names=subset_names,
-                descriptor_cache=descriptor_cache,
+                class_names=subset_names
             )
             # 打印训练集标签映射
             print("\n===== 训练集标签映射 =====")
@@ -596,8 +573,7 @@ def get_data_loader(
                     synth_train_data_dir=real_train_data_dir,  # 根据实际路径调整
                     transform=train_transform,
                     dataset=dataset,
-                    n_img_per_cls=n_img_per_cls,
-                    descriptor_cache=descriptor_cache,
+                    n_img_per_cls=n_img_per_cls
                 )
                 train_dataset = ConcatDataset([train_dataset, synth_dataset])
         else:
@@ -705,7 +681,6 @@ def get_synth_train_data_loader(
     real_train_fewshot_data_dir='',
     is_pooled_fewshot=False,
     model_type=None,
-    descriptor_cache=None,
 ):
     train_transform, test_transform = get_transforms(model_type)
     train_dataset = DatasetSynthImage(
@@ -717,7 +692,6 @@ def get_synth_train_data_loader(
         n_shot=n_shot,
         real_train_fewshot_data_dir=real_train_fewshot_data_dir,
         is_pooled_fewshot=is_pooled_fewshot,
-        descriptor_cache=descriptor_cache,
     ) 
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=bs, 

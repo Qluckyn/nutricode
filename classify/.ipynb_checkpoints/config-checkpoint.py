@@ -221,18 +221,6 @@ def get_args():
     parser.add_argument("--datadream_epoch", type=int2none, default=200)
     parser.add_argument("--datadream_train_text_encoder", type=str2bool, default=True)
 
-    # ROI 辅助监督相关
-    parser.add_argument("--use_roi_aux_head", type=str2bool, default=False,
-                        help="是否启用 ROI 描述符辅助回归头")
-    parser.add_argument("--alpha_roi", type=float, default=0.1,
-                        help="ROI 辅助损失权重")
-    parser.add_argument("--roi_descriptor_cache_path", type=str,
-                        default="/root/autodl-tmp/runs/roi_descriptor_cache.json",
-                        help="描述符缓存文件路径")
-    parser.add_argument("--mediapipe_model_path", type=str,
-                        default="/root/autodl-tmp/face_landmarker.task",
-                        help="MediaPipe face_landmarker.task 文件路径")
-
     # stable diffusion
     parser.add_argument("--is_synth_train", type=str2bool, default=False)
     parser.add_argument("--sd_version", type=str2none, default=None)

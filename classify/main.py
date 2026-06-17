@@ -16,6 +16,7 @@ import re
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
+import torch.nn.functional as F
 from torchvision.transforms import v2
 
 from utils import (
@@ -31,8 +32,24 @@ from models.resnet50 import ResNet50
 from util_data import SUBSET_NAMES
 
 
+def _infer_roi_descriptor_dirs(args):
+    # 归一化统计只从真实训练目录计算；raw/qc 合成目录用于增量补充缓存。
+    default_raw = (
+        "/root/autodl-tmp/datadream_outputs/generated_images/my_dataset/"
+        "sd2.1/gs3.5_nis50/shot20_seed0_template1_lr0.0001_ep240/train"
+    )
+    synth_raw_dir = os.environ.get("SYNTH_RAW_DIR") or default_raw
+    synth_qc_dir = os.environ.get("SYNTH_QC_DIR")
+    if not synth_qc_dir:
+        if synth_raw_dir.endswith("/train"):
+            synth_qc_dir = synth_raw_dir[:-len("/train")] + "/filtered_train"
+        else:
+            synth_qc_dir = os.path.join(os.path.dirname(synth_raw_dir), "filtered_train")
+    return [args.real_train_data_dir, synth_raw_dir, synth_qc_dir]
+
+
 #加载真实数据
-def load_data_loader(args):
+def load_data_loader(args, descriptor_cache=None):
     train_loader, test_loader = get_data_loader(
         real_train_data_dir=args.real_train_data_dir,
         real_test_data_dir=args.real_test_data_dir,
@@ -46,12 +63,13 @@ def load_data_loader(args):
         real_train_fewshot_data_dir=args.real_train_fewshot_data_dir,
         is_pooled_fewshot=args.is_pooled_fewshot,
         model_type=args.model_type,
+        descriptor_cache=descriptor_cache,
     )
     return train_loader, test_loader
 
 
 #加载合成数据
-def load_synth_train_data_loader(args):
+def load_synth_train_data_loader(args, descriptor_cache=None):
     synth_train_loader = get_synth_train_data_loader(
         synth_train_data_dir=args.synth_train_data_dir,
         bs=args.batch_size,
@@ -61,6 +79,7 @@ def load_synth_train_data_loader(args):
         real_train_fewshot_data_dir=args.real_train_fewshot_data_dir,
         is_pooled_fewshot=args.is_pooled_fewshot,
         model_type=args.model_type,
+        descriptor_cache=descriptor_cache,
     )
     return synth_train_loader
 
@@ -79,11 +98,24 @@ def main(args):
     cudnn.benchmark = True
 
     # ==================================================
+    # ROI descriptor cache
+    # ==================================================
+    descriptor_cache = None
+    if getattr(args, "use_roi_aux_head", False) and not getattr(args, "eval_only", False):
+        from roi_descriptor import ROIDescriptorCache
+
+        descriptor_cache = ROIDescriptorCache(
+            cache_path=args.roi_descriptor_cache_path,
+            model_path=args.mediapipe_model_path,
+        )
+        descriptor_cache.build(_infer_roi_descriptor_dirs(args))
+
+    # ==================================================
     # Data loader
     # ==================================================
-    train_loader, val_loader = load_data_loader(args)
+    train_loader, val_loader = load_data_loader(args, descriptor_cache=descriptor_cache)
     if (not getattr(args, "eval_only", False)) and args.is_synth_train:
-        train_loader = load_synth_train_data_loader(args)
+        train_loader = load_synth_train_data_loader(args, descriptor_cache=descriptor_cache)
 
         
     # ==================================================
@@ -97,6 +129,7 @@ def main(args):
             is_lora_text=args.is_lora_text,
             clip_download_dir=args.clip_download_dir,
             clip_version=args.clip_version,
+            use_roi_aux_head=getattr(args, "use_roi_aux_head", False),
         )
         params_groups = model.learnable_params()
     elif args.model_type == "resnet50": 
@@ -235,10 +268,22 @@ def train_one_epoch(
     for it, batch in enumerate(
         metric_logger.log_every(data_loader, 100, header)
     ):
+        descriptor = None
+        has_descriptor = False
+        is_real = None
         if args.is_synth_train and args.is_pooled_fewshot:
-            image, label, is_real = batch
+            if len(batch) == 4:
+                image, label, is_real, descriptor = batch
+                has_descriptor = True
+            else:
+                image, label, is_real = batch
         else:
-            image, label = batch
+            if len(batch) == 3:
+                image, label, descriptor = batch
+                has_descriptor = True
+            else:
+                image, label = batch
+        descriptor_matches_image = has_descriptor
 
         label_origin = label
         label_origin = label_origin.cuda(non_blocking=True)
@@ -273,9 +318,11 @@ def train_one_epoch(
 
                     image = new_image
                     label = new_label
+                    descriptor_matches_image = False
 
                 else:
                     image, label = cutmix_or_mixup(image, label)
+                    descriptor_matches_image = False
             
 
         it = len(data_loader) * epoch + it  # global training iteration
@@ -291,7 +338,11 @@ def train_one_epoch(
 
         # forward pass
         with torch.cuda.amp.autocast(fp16_scaler is not None):
-            logit = model(image)
+            roi_pred = None
+            if getattr(args, "use_roi_aux_head", False):
+                logit, roi_pred = model(image)
+            else:
+                logit = model(image)
 
             if args.is_synth_train and args.is_pooled_fewshot:
                 real_mask = (is_real == 1)
@@ -312,6 +363,19 @@ def train_one_epoch(
                     loss = criterion(logit, label)
             else:
                 loss = criterion(logit, label)
+
+            if (
+                getattr(args, "use_roi_aux_head", False)
+                and descriptor_matches_image
+                and descriptor is not None
+                and roi_pred is not None
+            ):
+                descriptor = descriptor.cuda(non_blocking=True)
+                valid_mask = ~torch.isnan(descriptor).any(dim=1)
+                if valid_mask.sum() > 0:
+                    loss_roi = F.mse_loss(roi_pred[valid_mask], descriptor[valid_mask])
+                    loss = loss + args.alpha_roi * loss_roi
+                    metric_logger.update(loss_roi=loss_roi.item())
 
         if not math.isfinite(loss.item()):
             print("Loss is {}, stopping training".format(loss.item()))
@@ -386,6 +450,8 @@ def eval(model, criterion, data_loader, epoch, fp16_scaler, args):
         # compute output
         with torch.cuda.amp.autocast(fp16_scaler is not None):
             output = model(image)
+            if isinstance(output, tuple):
+                output = output[0]
             loss = criterion(output, label)
 
         #acc1, acc5 = get_accuracy(output, label, topk=(1, 5))
@@ -563,6 +629,8 @@ def analyze_predictions(args, model, data_loader):
         
         # 计算输出（CLIP/ResNet 统一走 logits 输出）
         output = model(image)
+        if isinstance(output, tuple):
+            output = output[0]
         
         # 获取预测概率和类别
         probs = torch.nn.functional.softmax(output, dim=1)
