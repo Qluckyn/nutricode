@@ -29,6 +29,7 @@ from config import get_args
 from data import get_data_loader, get_synth_train_data_loader
 from models.clip import CLIP
 from models.resnet50 import ResNet50
+from proto_align import PrototypeManager
 from util_data import SUBSET_NAMES
 
 
@@ -138,6 +139,16 @@ def main(args):
 
     model = model.cuda()
 
+    # 原型管理器（只在启用原型对齐且使用合成数据时初始化）
+    proto_manager = None
+    if getattr(args, "use_proto_align", False) and args.is_synth_train:
+        proto_manager = PrototypeManager(
+            n_classes=args.n_classes,
+            feat_dim=512,
+            momentum=getattr(args, "proto_momentum", 0.999),
+            device="cuda",
+        )
+
     criterion = nn.CrossEntropyLoss().cuda()
 
     # ==================================================
@@ -208,7 +219,8 @@ def main(args):
     for epoch in range(0, args.epochs):
         train_stats, best_stats, best_top1 = train_one_epoch(
             model, criterion, train_loader, optimizer, scheduler, epoch, fp16_scaler, cutmix_or_mixup, args,
-            val_loader, best_stats, best_top1, 
+            val_loader, best_stats, best_top1,
+            proto_manager=proto_manager,
         )
 
 #         if args.dataset in ("imagenet", "sun397"):
@@ -259,6 +271,7 @@ def main(args):
 def train_one_epoch(
     model, criterion, data_loader, optimizer, scheduler, epoch, fp16_scaler, cutmix_or_mixup, args,
     val_loader, best_stats, best_top1,
+    proto_manager=None,
 ):
     metric_logger = MetricLogger(delimiter="  ")
     header = "Epoch: [{}/{}]".format(epoch, args.epochs)
@@ -339,10 +352,30 @@ def train_one_epoch(
         # forward pass
         with torch.cuda.amp.autocast(fp16_scaler is not None):
             roi_pred = None
+            image_feats = None
+            need_proto = (
+                proto_manager is not None
+                and args.is_synth_train
+                and args.is_pooled_fewshot
+            )
+
             if getattr(args, "use_roi_aux_head", False):
-                logit, roi_pred = model(image)
+                if need_proto:
+                    # 方向A + 原型对齐同时开启
+                    out = model(image, output_features=True)
+                    logit = out["logits"]
+                    roi_pred = out["roi_pred"]
+                    image_feats = out["image_feats"]
+                else:
+                    logit, roi_pred = model(image)
             else:
-                logit = model(image)
+                if need_proto:
+                    # 只开启原型对齐
+                    out = model(image, output_features=True)
+                    logit = out["logits"]
+                    image_feats = out["image_feats"]
+                else:
+                    logit = model(image)
 
             if args.is_synth_train and args.is_pooled_fewshot:
                 real_mask = (is_real == 1)
@@ -376,6 +409,25 @@ def train_one_epoch(
                     loss_roi = F.mse_loss(roi_pred[valid_mask], descriptor[valid_mask])
                     loss = loss + args.alpha_roi * loss_roi
                     metric_logger.update(loss_roi=loss_roi.item())
+
+            # 原型对齐损失（新增）
+            if need_proto and image_feats is not None:
+                # 1. 用本 batch 的真实样本更新原型（不参与梯度）
+                with torch.no_grad():
+                    proto_manager.update(
+                        image_feats.detach().float(),
+                        label_origin,
+                        real_mask.bool(),
+                    )
+                # 2. 计算合成图的原型对齐损失（参与梯度）
+                loss_proto = proto_manager.compute_loss(
+                    image_feats,
+                    label_origin,
+                    synth_mask.bool(),
+                    margin=getattr(args, "proto_margin", 0.2),
+                )
+                loss = loss + args.beta_proto * loss_proto
+                metric_logger.update(loss_proto=loss_proto.item())
 
         if not math.isfinite(loss.item()):
             print("Loss is {}, stopping training".format(loss.item()))

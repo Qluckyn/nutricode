@@ -226,6 +226,17 @@ def get_args():
                         help="是否启用 ROI 描述符辅助回归头")
     parser.add_argument("--alpha_roi", type=float, default=0.1,
                         help="ROI 辅助损失权重")
+
+    # 原型对齐相关
+    parser.add_argument("--use_proto_align", type=str2bool, default=False,
+                        help="是否启用原型对齐损失")
+    parser.add_argument("--beta_proto", type=float, default=0.1,
+                        help="原型对齐损失权重 β")
+    parser.add_argument("--proto_margin", type=float, default=0.2,
+                        help="原型对齐 triplet margin")
+    parser.add_argument("--proto_momentum", type=float, default=0.999,
+                        help="原型 EMA 动量")
+
     parser.add_argument("--roi_descriptor_cache_path", type=str,
                         default="/root/autodl-tmp/runs/roi_descriptor_cache.json",
                         help="描述符缓存文件路径")
