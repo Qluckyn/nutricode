@@ -9,6 +9,8 @@ from classify.narrative_report import (
     ROI_NAMES,
     aggregate_subject_descriptors,
     aggregate_subject_views,
+    collect_subject_view_attention,
+    collect_subject_view_descriptors,
     build_thresholds,
     classify_severity,
     generate_roi_sentence,
@@ -131,8 +133,8 @@ class NarrativeReportPhase1Test(unittest.TestCase):
                 "target_class": target_class,
             }
             for roi in ROI_NAMES:
-                row[f"attr_pos_roi_{roi}_enrichment"] = enrichment
-                row[f"attr_signed_roi_{roi}_balance"] = balance
+                row[f"attr_pos_roi_{roi}_face_enrichment"] = enrichment
+                row[f"attr_signed_roi_{roi}_face_balance"] = balance
             records.append(row)
 
         result = aggregate_subject_views(records, "001")
@@ -142,9 +144,21 @@ class NarrativeReportPhase1Test(unittest.TestCase):
             self.assertEqual(result[roi]["balance"], 0.25)
             self.assertEqual(result[roi]["enrichment"], 1.5)
 
+    def test_aggregate_subject_views_rejects_full_image_attention_only(self):
+        records = [{
+            "subject_id": "001",
+            "view": "front",
+            "target_class": "malnourished_face",
+            **{f"attr_pos_roi_{roi}_enrichment": 1.5 for roi in ROI_NAMES},
+            **{f"attr_signed_roi_{roi}_balance": 0.25 for roi in ROI_NAMES},
+        }]
+
+        with self.assertRaisesRegex(ValueError, "face-normalized attention scores"):
+            aggregate_subject_views(records, "001")
+
     def test_subject_171_missing_view_regression_real_data(self):
         descriptor_path = "/root/autodl-tmp/runs/roi_descriptor_cache_with_test.json"
-        attention_path = "/root/autodl-tmp/runs/vis/roi_validation_full/roi_attention_records.json"
+        attention_path = "/root/autodl-tmp/runs/vis/roi_validation_full_face/roi_attention_records.json"
         train_dir = "/root/autodl-tmp/runs/cv/fold_4/my_dataset_binary/seed0"
         for path in (descriptor_path, attention_path, train_dir):
             if not Path(path).exists():
@@ -302,9 +316,60 @@ class NarrativeReportPhase1Test(unittest.TestCase):
         self.assertIn("模型关注区域：未见关注度显著高于阈值的预设ROI区域。", report["narrative"])
         self.assertIn("ROI异常区域：各ROI描述符均处于正常范围。", report["narrative"])
 
+    def test_viewwise_narrative_describes_each_view_and_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_dir = Path(tmp) / "test_data"
+            cls_dir = image_dir / "malnourished_face"
+            cls_dir.mkdir(parents=True)
+            descriptor_cache = {
+                "descriptors": {
+                    str((cls_dir / "001_01.png").resolve()): [0.5, 0.3, 0.9, 0.4],
+                    str((cls_dir / "001_02.png").resolve()): [0.5, 0.3, 0.4, 0.4],
+                    str((cls_dir / "001_03.png").resolve()): None,
+                }
+            }
+
+            records = []
+            for view, temporal, malar in (("front", 1.2, 1.2), ("left_45", 0.9, 0.9)):
+                row = {"subject_id": "001", "view": view, "target_class": "malnourished_face"}
+                for roi in ROI_NAMES:
+                    row[f"attr_pos_roi_{roi}_face_enrichment"] = 0.8
+                    row[f"attr_signed_roi_{roi}_face_balance"] = 0.1
+                row["attr_pos_roi_temporal_face_enrichment"] = temporal
+                row["attr_pos_roi_malar_face_enrichment"] = malar
+                records.append(row)
+
+            descriptor_values = {"temporal": 0.5, "orbital": 0.3, "malar": 0.9, "jawline": 0.4, "views_used": ["front", "left_45"]}
+            attention_scores = {"views_used": ["front", "left_45"], **{roi: {"enrichment": 1.0, "balance": 0.1} for roi in ROI_NAMES}}
+            thresholds = {"temporal": (0.2, 0.4), "orbital": (0.2, 0.4), "malar": (0.8, 0.6), "jawline": (0.8, 0.6)}
+
+            descriptor_view_scores = collect_subject_view_descriptors(descriptor_cache, "001", image_dir=str(image_dir))
+            attention_view_scores = collect_subject_view_attention(records, "001")
+            report = generate_subject_report(
+                "001",
+                descriptor_values,
+                attention_scores,
+                thresholds,
+                predicted_class="malnourished_face",
+                malnourished_probability=0.8,
+                attended_threshold=1.1,
+                descriptor_view_scores=descriptor_view_scores,
+                attention_view_scores=attention_view_scores,
+            )
+
+        self.assertIn("模型关注区域：正面：对颞部区域关注度较高，对颧颊区域关注度较高", report["narrative"])
+        self.assertIn("左45度：未见关注度显著高于阈值的预设ROI区域", report["narrative"])
+        self.assertIn("右45度：检测失败", report["narrative"])
+        self.assertIn("ROI异常区域：正面：", report["narrative"])
+        self.assertIn("左45度：", report["narrative"])
+        self.assertIn("右45度：检测失败", report["narrative"])
+        self.assertEqual(report["view_findings"]["right_45"]["descriptor_status"], "failed")
+        self.assertEqual(report["view_findings"]["right_45"]["attention_status"], "missing")
+        self.assertIn("subject_level_attention_narrative", report)
+
     def test_real_report_structured_sections_use_allowed_sentences(self):
         descriptor_path = "/root/autodl-tmp/runs/roi_descriptor_cache_with_test.json"
-        attention_path = "/root/autodl-tmp/runs/vis/roi_validation_full/roi_attention_records.json"
+        attention_path = "/root/autodl-tmp/runs/vis/roi_validation_full_face/roi_attention_records.json"
         train_dir = "/root/autodl-tmp/runs/cv/fold_4/my_dataset_binary/seed0"
         for path in (descriptor_path, attention_path, train_dir):
             if not Path(path).exists():
@@ -353,7 +418,7 @@ class NarrativeReportPhase1Test(unittest.TestCase):
 
     def test_real_group_non_normal_finding_count_distribution(self):
         descriptor_path = "/root/autodl-tmp/runs/roi_descriptor_cache_with_test.json"
-        attention_path = "/root/autodl-tmp/runs/vis/roi_validation_full/roi_attention_records.json"
+        attention_path = "/root/autodl-tmp/runs/vis/roi_validation_full_face/roi_attention_records.json"
         train_dir = "/root/autodl-tmp/runs/cv/fold_4/my_dataset_binary/seed0"
         for path in (descriptor_path, attention_path, train_dir):
             if not Path(path).exists():

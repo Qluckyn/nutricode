@@ -384,19 +384,68 @@ def compute_roi_map_scores(attn_map, roi_masks):
     return scores
 
 
-def compute_all_attribution_scores(maps, roi_masks):
+def compute_face_normalized_roi_map_scores(attn_map, roi_masks, face_mask, eps=1e-8):
+    scores = {}
+    if face_mask is None or not np.any(face_mask):
+        for roi_name in roi_masks:
+            scores[f"roi_{roi_name}_face_mean"] = None
+            scores[f"roi_{roi_name}_face_enrichment"] = None
+        return scores
+
+    attn_map = np.asarray(attn_map, dtype=np.float32)
+    # Use the detected face as the baseline, so background attribution cannot
+    # dilute or inflate ROI enrichment. Keep the image-space masks to preserve
+    # thin clinical ROIs such as the jawline.
+    attn_resized = cv2.resize(
+        attn_map,
+        (face_mask.shape[1], face_mask.shape[0]),
+        interpolation=cv2.INTER_LINEAR,
+    )
+    face_bool = face_mask > 0
+    if not np.any(face_bool):
+        for roi_name in roi_masks:
+            scores[f"roi_{roi_name}_face_mean"] = None
+            scores[f"roi_{roi_name}_face_enrichment"] = None
+        return scores
+
+    face_attention = float(np.mean(attn_resized[face_bool]))
+    for roi_name, mask in roi_masks.items():
+        roi_face_bool = (mask > 0) & face_bool
+        if not np.any(roi_face_bool):
+            scores[f"roi_{roi_name}_face_mean"] = None
+            scores[f"roi_{roi_name}_face_enrichment"] = None
+            continue
+        roi_face_attention = float(np.mean(attn_resized[roi_face_bool]))
+        scores[f"roi_{roi_name}_face_mean"] = roi_face_attention
+        scores[f"roi_{roi_name}_face_enrichment"] = float(roi_face_attention / (face_attention + eps))
+    return scores
+
+
+def compute_all_attribution_scores(maps, roi_masks, face_mask=None):
     scores = {}
     for kind in ("pos", "neg", "abs"):
         kind_scores = compute_roi_map_scores(maps[kind], roi_masks)
         for key, value in kind_scores.items():
             scores[f"attr_{kind}_{key}"] = value
+        face_kind_scores = compute_face_normalized_roi_map_scores(maps[kind], roi_masks, face_mask)
+        for key, value in face_kind_scores.items():
+            scores[f"attr_{kind}_{key}"] = value
 
     signed_scores = compute_roi_map_scores(maps["signed"], roi_masks)
+    signed_face_scores = compute_face_normalized_roi_map_scores(maps["signed"], roi_masks, face_mask)
     for roi_name in ROI_NAMES:
         scores[f"attr_signed_roi_{roi_name}_mean"] = signed_scores.get(f"roi_{roi_name}_mean", 0.0)
+        scores[f"attr_signed_roi_{roi_name}_face_mean"] = signed_face_scores.get(
+            f"roi_{roi_name}_face_mean"
+        )
         pos = scores.get(f"attr_pos_roi_{roi_name}_enrichment", 0.0)
         neg = scores.get(f"attr_neg_roi_{roi_name}_enrichment", 0.0)
         scores[f"attr_signed_roi_{roi_name}_balance"] = float(pos - neg)
+        face_pos = scores.get(f"attr_pos_roi_{roi_name}_face_enrichment")
+        face_neg = scores.get(f"attr_neg_roi_{roi_name}_face_enrichment")
+        scores[f"attr_signed_roi_{roi_name}_face_balance"] = (
+            None if face_pos is None or face_neg is None else float(face_pos - face_neg)
+        )
     return scores
 
 
@@ -504,7 +553,7 @@ def run_roi_occlusion(model, img_np, roi_masks, target_idx, fill="mean"):
     return result
 
 
-def draw_visualization(img_np, roi_masks, maps, title, save_path=None, show=False):
+def draw_visualization(img_np, roi_masks, maps, title, face_mask=None, face_mask_source=None, save_path=None, show=False):
     heat = normalize_for_vis(maps["pos"])
     heat_resized = cv2.resize(heat, (224, 224), interpolation=cv2.INTER_LINEAR)
     heatmap = cv2.applyColorMap((heat_resized * 255).astype(np.uint8), cv2.COLORMAP_JET)
@@ -522,7 +571,18 @@ def draw_visualization(img_np, roi_masks, maps, title, save_path=None, show=Fals
         color = ROI_COLORS[roi_name]
         roi_vis[mask > 0] = (0.7 * roi_vis[mask > 0] + 0.3 * np.array(color)).astype(np.uint8)
 
-    fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+    face_vis = img_np.copy()
+    face_title = "Face mask"
+    if face_mask is not None and np.any(face_mask):
+        # This panel visualizes the denominator used by face-normalized ROI enrichment.
+        face_bool = face_mask > 0
+        face_color = np.array([255, 220, 40], dtype=np.uint8)
+        face_vis[face_bool] = (0.65 * face_vis[face_bool] + 0.35 * face_color).astype(np.uint8)
+        face_title = "Face mask ({})".format(face_mask_source or "unknown")
+    else:
+        face_title = "Face mask unavailable"
+
+    fig, axes = plt.subplots(1, 5, figsize=(25, 5))
     fig.suptitle(title)
     axes[0].imshow(img_np)
     axes[0].set_title("Input")
@@ -532,6 +592,8 @@ def draw_visualization(img_np, roi_masks, maps, title, save_path=None, show=Fals
     axes[2].set_title("Negative attribution")
     axes[3].imshow(roi_vis)
     axes[3].set_title("Clinical ROI")
+    axes[4].imshow(face_vis)
+    axes[4].set_title(face_title)
     for ax in axes:
         ax.axis("off")
     plt.tight_layout()
@@ -577,8 +639,8 @@ def analyze_image_target(
         print(f"[WARN] ROI生成失败: {img_path}")
         return None
 
-    attr_scores = compute_all_attribution_scores(maps, roi_masks)
     face_mask, face_mask_source = roi_analyzer.generate_face_mask(img_np, view_name=view_name)
+    attr_scores = compute_all_attribution_scores(maps, roi_masks, face_mask=face_mask)
     face_background_scores = compute_face_background_attribution_scores(
         maps,
         face_mask,
@@ -601,7 +663,16 @@ def analyze_image_target(
             f"target={CLASS_NAMES[target_idx]} | pred={CLASS_NAMES[pred_idx]} | "
             f"mal_prob={float(probs[POSITIVE_CLASS_IDX]) * 100:.1f}%"
         )
-        draw_visualization(img_np, roi_masks, maps, title, save_path=save_path, show=show)
+        draw_visualization(
+            img_np,
+            roi_masks,
+            maps,
+            title,
+            face_mask=face_mask,
+            face_mask_source=face_mask_source,
+            save_path=save_path,
+            show=show,
+        )
 
     record = {
         "true_class": true_class,
@@ -667,11 +738,13 @@ def flatten_records_for_csv(records):
     ]
     roi_attr = []
     for kind in ATTR_KINDS:
-        for metric in ("mean", "enrichment"):
+        for metric in ("mean", "enrichment", "face_mean", "face_enrichment"):
             for roi in ROI_NAMES:
                 roi_attr.append(f"attr_{kind}_roi_{roi}_{metric}")
     roi_attr.extend([f"attr_signed_roi_{roi}_mean" for roi in ROI_NAMES])
     roi_attr.extend([f"attr_signed_roi_{roi}_balance" for roi in ROI_NAMES])
+    roi_attr.extend([f"attr_signed_roi_{roi}_face_mean" for roi in ROI_NAMES])
+    roi_attr.extend([f"attr_signed_roi_{roi}_face_balance" for roi in ROI_NAMES])
     occ = []
     for roi in ROI_NAMES:
         occ.extend([
@@ -761,8 +834,11 @@ def save_group_summaries(records, output_dir, run_occlusion=False):
     for kind in ATTR_KINDS:
         for roi in ROI_NAMES:
             attr_values.append(f"attr_{kind}_roi_{roi}_enrichment")
+            attr_values.append(f"attr_{kind}_roi_{roi}_face_enrichment")
     attr_values.extend([f"attr_signed_roi_{roi}_mean" for roi in ROI_NAMES])
     attr_values.extend([f"attr_signed_roi_{roi}_balance" for roi in ROI_NAMES])
+    attr_values.extend([f"attr_signed_roi_{roi}_face_mean" for roi in ROI_NAMES])
+    attr_values.extend([f"attr_signed_roi_{roi}_face_balance" for roi in ROI_NAMES])
 
     occ_values = []
     if run_occlusion:
@@ -973,21 +1049,28 @@ def save_summary_plots(records, output_dir, run_occlusion=False):
     x = np.arange(len(ROI_NAMES))
 
     for kind in ("pos", "neg", "abs"):
-        fig, axes = plt.subplots(1, len(pairs), figsize=(5 * len(pairs), 4), sharey=True)
-        if len(pairs) == 1:
-            axes = [axes]
-        for ax, (true_class, target_class), label in zip(axes, pairs, labels):
-            vals = [mean_for(records, true_class, target_class, f"attr_{kind}_roi_{roi}_enrichment") for roi in ROI_NAMES]
-            ax.bar(x, vals, alpha=0.8)
-            ax.set_xticks(x)
-            ax.set_xticklabels(ROI_NAMES, rotation=25, ha="right")
-            ax.set_title(label)
-            ax.set_ylabel(f"{kind} enrichment")
-        fig.tight_layout()
-        fig_path = output_dir / f"attribution_{kind}_by_roi.png"
-        plt.savefig(fig_path, dpi=150, bbox_inches="tight")
-        plt.close(fig)
-        print(f"[INFO] saved: {fig_path}")
+        for metric_suffix, label_suffix, file_suffix in (
+            ("enrichment", "enrichment", "by_roi"),
+            ("face_enrichment", "face-normalized enrichment", "face_enrichment_by_roi"),
+        ):
+            fig, axes = plt.subplots(1, len(pairs), figsize=(5 * len(pairs), 4), sharey=True)
+            if len(pairs) == 1:
+                axes = [axes]
+            for ax, (true_class, target_class), label in zip(axes, pairs, labels):
+                vals = [
+                    mean_for(records, true_class, target_class, f"attr_{kind}_roi_{roi}_{metric_suffix}")
+                    for roi in ROI_NAMES
+                ]
+                ax.bar(x, vals, alpha=0.8)
+                ax.set_xticks(x)
+                ax.set_xticklabels(ROI_NAMES, rotation=25, ha="right")
+                ax.set_title(label)
+                ax.set_ylabel(f"{kind} {label_suffix}")
+            fig.tight_layout()
+            fig_path = output_dir / f"attribution_{kind}_{file_suffix}.png"
+            plt.savefig(fig_path, dpi=150, bbox_inches="tight")
+            plt.close(fig)
+            print(f"[INFO] saved: {fig_path}")
 
     if run_occlusion:
         fig, axes = plt.subplots(1, len(pairs), figsize=(5 * len(pairs), 4), sharey=True)

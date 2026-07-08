@@ -32,7 +32,12 @@ REQUIRED_TARGET_CLASS = "malnourished_face"
 IMG_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 VIEW_ORDER = ["front", "left_45", "right_45"]
 VIEW_CODE_TO_NAME = {"01": "front", "02": "left_45", "03": "right_45"}
+VIEW_CN_NAMES = {"front": "正面", "left_45": "左45度", "right_45": "右45度"}
 PREDICTED_CLASS_CN = {"malnourished_face": "营养不良", "normal_face": "正常"}
+# 结构化报告只使用以 face mask 为 denominator 的 attention 指标，
+# 避免背景 attribution 稀释或抬高 ROI 关注度判断。
+ATTENTION_ENRICHMENT_KEY_TEMPLATE = "attr_pos_roi_{roi}_face_enrichment"
+ATTENTION_BALANCE_KEY_TEMPLATE = "attr_signed_roi_{roi}_face_balance"
 
 TEMPLATE_BANK = {
     "temporal": {
@@ -261,6 +266,54 @@ def aggregate_subject_descriptors(
     return result
 
 
+def collect_subject_view_descriptors(
+    descriptor_cache: dict,
+    subject_id: str,
+    image_dir: str = "/root/autodl-tmp/test_data",
+) -> dict:
+    descriptors = descriptor_cache.get("descriptors", descriptor_cache)
+    image_dir_abs = os.path.abspath(image_dir)
+    result = {
+        view: {"status": "missing", "values": {}, "abnormal_rois": [], "sentences": []}
+        for view in VIEW_ORDER
+    }
+
+    for path, desc in descriptors.items():
+        path_abs = os.path.abspath(path)
+        if not path_abs.startswith(image_dir_abs + os.sep):
+            continue
+        if _parse_subject_id_from_path(path_abs) != str(subject_id):
+            continue
+        view = _parse_view_from_path(path_abs)
+        if view not in VIEW_ORDER:
+            continue
+
+        if desc is None:
+            # descriptor 为 null 表示该视角人脸/ROI 描述符检测失败，需要在报告中显式标注。
+            result[view] = {"status": "failed", "values": {}, "abnormal_rois": [], "sentences": []}
+            continue
+
+        values = {}
+        for roi in ROI_NAMES:
+            value = float(desc[ROI_TO_DESCRIPTOR_INDEX[roi]])
+            if not np.isfinite(value) or value < 0.0 or value > 1.0:
+                raise ValueError(f"descriptor for subject={subject_id} view={view} roi={roi} is not normalized: {value!r}")
+            values[roi] = value
+        result[view] = {"status": "ok", "values": values, "abnormal_rois": [], "sentences": []}
+
+    return result
+
+
+def _finite_float_or_none(value):
+    if value is None:
+        return None
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if np.isfinite(value) else None
+
+
 def aggregate_subject_views(records: list, subject_id: str) -> dict:
     filtered = [
         row for row in records
@@ -278,21 +331,65 @@ def aggregate_subject_views(records: list, subject_id: str) -> dict:
     for roi in ROI_NAMES:
         enrichments = []
         balances = []
-        enrich_key = f"attr_pos_roi_{roi}_enrichment"
-        balance_key = f"attr_signed_roi_{roi}_balance"
+        enrich_key = ATTENTION_ENRICHMENT_KEY_TEMPLATE.format(roi=roi)
+        balance_key = ATTENTION_BALANCE_KEY_TEMPLATE.format(roi=roi)
         for row in filtered:
-            enrichment = row.get(enrich_key)
-            balance = row.get(balance_key)
-            if enrichment is not None and np.isfinite(float(enrichment)):
-                enrichments.append(float(enrichment))
-            if balance is not None and np.isfinite(float(balance)):
-                balances.append(float(balance))
+            # 只聚合 face-normalized attention：分子为 ROI∩Face，分母为 Face。
+            # 如果旧版 attention records 缺少这些字段，下面会报错提醒重新生成。
+            enrichment = _finite_float_or_none(row.get(enrich_key))
+            balance = _finite_float_or_none(row.get(balance_key))
+            if enrichment is not None:
+                enrichments.append(enrichment)
+            if balance is not None:
+                balances.append(balance)
         if not enrichments or not balances:
-            raise ValueError(f"missing attention scores for subject_id={subject_id} roi={roi}")
+            raise ValueError(
+                f"missing face-normalized attention scores for subject_id={subject_id} roi={roi}; "
+                f"required keys: {enrich_key}, {balance_key}"
+            )
         result[roi] = {
             "enrichment": float(np.median(enrichments)),
             "balance": float(np.median(balances)),
         }
+    return result
+
+
+def collect_subject_view_attention(records: list, subject_id: str) -> dict:
+    filtered = [
+        row for row in records
+        if str(row.get("subject_id")) == str(subject_id)
+        and row.get("target_class") == REQUIRED_TARGET_CLASS
+    ]
+    if not filtered:
+        raise ValueError(
+            f"no attention records found for subject_id={subject_id} "
+            f"with target_class={REQUIRED_TARGET_CLASS}"
+        )
+
+    result = {
+        view: {"status": "missing", "scores": {}, "attended_rois": []}
+        for view in VIEW_ORDER
+    }
+    for row in filtered:
+        view = row.get("view")
+        if view not in VIEW_ORDER:
+            continue
+        scores = {}
+        missing = False
+        for roi in ROI_NAMES:
+            enrich_key = ATTENTION_ENRICHMENT_KEY_TEMPLATE.format(roi=roi)
+            balance_key = ATTENTION_BALANCE_KEY_TEMPLATE.format(roi=roi)
+            enrichment = _finite_float_or_none(row.get(enrich_key))
+            balance = _finite_float_or_none(row.get(balance_key))
+            if enrichment is None or balance is None:
+                missing = True
+                break
+            scores[roi] = {"enrichment": enrichment, "balance": balance}
+        # attention record 存在但 face-normalized 字段无效时，视为该视角 attention 检测失败。
+        result[view] = (
+            {"status": "failed", "scores": {}, "attended_rois": []}
+            if missing else {"status": "ok", "scores": scores, "attended_rois": []}
+        )
     return result
 
 
@@ -303,6 +400,86 @@ def _prediction_confidence(predicted_class: str, malnourished_probability: float
 
 def _attention_sentence(roi: str) -> str:
     return f"对{ROI_CN_NAMES[roi]}区域关注度较高"
+
+
+def _view_label(view: str) -> str:
+    return VIEW_CN_NAMES.get(view, view)
+
+
+def _format_attention_items(rois: list[str]) -> str:
+    return "，".join(_attention_sentence(roi) for roi in rois)
+
+
+def _build_viewwise_sections(
+    descriptor_view_scores: dict,
+    attention_view_scores: dict,
+    thresholds: dict,
+    attended_threshold: float,
+) -> dict:
+    view_findings = {}
+    attention_parts = []
+    abnormal_parts = []
+
+    for view in VIEW_ORDER:
+        view_name = _view_label(view)
+        attention_info = attention_view_scores.get(view, {"status": "missing", "scores": {}})
+        descriptor_info = descriptor_view_scores.get(view, {"status": "missing", "values": {}})
+
+        attended_rois = []
+        attention_status = attention_info.get("status", "missing")
+        if attention_status == "ok":
+            for roi in ROI_NAMES:
+                score = attention_info.get("scores", {}).get(roi, {})
+                enrichment = _finite_float_or_none(score.get("enrichment"))
+                if enrichment is not None and enrichment > float(attended_threshold):
+                    attended_rois.append(roi)
+            attention_text = _format_attention_items(attended_rois) if attended_rois else "未见关注度显著高于阈值的预设ROI区域"
+        else:
+            # attention 缺少该视角记录通常来自 ROI/landmark 检测失败，报告中不做静默跳过。
+            attention_text = "检测失败"
+
+        abnormal_rois = []
+        abnormal_sentences = []
+        descriptor_status = descriptor_info.get("status", "missing")
+        if descriptor_status == "ok":
+            values = descriptor_info.get("values", {})
+            for roi in ROI_NAMES:
+                value = values.get(roi)
+                if value is None:
+                    continue
+                severity = classify_severity(float(value), ROI_DIRECTION[roi], thresholds[roi])
+                if severity == "normal":
+                    continue
+                abnormal_rois.append(roi)
+                balance = 0.0
+                if attention_status == "ok":
+                    balance = attention_info.get("scores", {}).get(roi, {}).get("balance", 0.0)
+                abnormal_sentences.append(generate_roi_sentence(roi, severity, roi in attended_rois, balance))
+            abnormal_text = "；".join(sentence for sentence in abnormal_sentences if sentence)
+            if not abnormal_text:
+                abnormal_text = "各ROI描述符均处于正常范围"
+        else:
+            # descriptor 为 null 或视角缺失时，在 ROI 异常区域段落中直接标注检测失败。
+            abnormal_text = "检测失败"
+
+        attention_parts.append(f"{view_name}：{attention_text}")
+        abnormal_parts.append(f"{view_name}：{abnormal_text}")
+        view_findings[view] = {
+            "attention_status": attention_status,
+            "descriptor_status": descriptor_status,
+            "attended_rois": attended_rois,
+            "abnormal_rois": abnormal_rois,
+            "attention_text": attention_text,
+            "abnormal_text": abnormal_text,
+        }
+
+    attention_narrative = "模型关注区域：" + "。".join(attention_parts) + "。"
+    abnormal_narrative = "ROI异常区域：" + "。".join(abnormal_parts) + "。"
+    return {
+        "view_findings": view_findings,
+        "viewwise_attention_narrative": attention_narrative,
+        "viewwise_abnormal_narrative": abnormal_narrative,
+    }
 
 
 def _build_structured_sections(findings: list[ROIFinding]) -> dict:
@@ -346,6 +523,8 @@ def generate_subject_report(
     predicted_class: str,
     malnourished_probability: float,
     attended_threshold: float = 1.15,
+    descriptor_view_scores: Optional[dict] = None,
+    attention_view_scores: Optional[dict] = None,
 ) -> dict:
     descriptor_views = descriptor_values.get("views_used", [])
     attention_views = attention_scores.get("views_used", [])
@@ -375,11 +554,32 @@ def generate_subject_report(
     sections = _build_structured_sections(findings)
     predicted_class_cn = PREDICTED_CLASS_CN.get(predicted_class, predicted_class)
     confidence = _prediction_confidence(predicted_class, malnourished_probability)
-    narrative = (
-        f"该受试者预测为{predicted_class_cn}（置信度{confidence:.1%}）。"
-        f"{sections['attention_narrative']}"
-        f"{sections['abnormal_narrative']}"
-    )
+
+    viewwise_sections = {}
+    if descriptor_view_scores is not None and attention_view_scores is not None:
+        viewwise_sections = _build_viewwise_sections(
+            descriptor_view_scores,
+            attention_view_scores,
+            thresholds,
+            attended_threshold,
+        )
+        # 主报告面向人工阅读，采用逐视角描述；median 结果仍保留在 roi_findings 等结构化字段中。
+        narrative = (
+            f"该受试者预测为{predicted_class_cn}（置信度{confidence:.1%}）。"
+            f"{viewwise_sections['viewwise_attention_narrative']}"
+            f"{viewwise_sections['viewwise_abnormal_narrative']}"
+        )
+        attention_narrative = viewwise_sections["viewwise_attention_narrative"]
+        abnormal_narrative = viewwise_sections["viewwise_abnormal_narrative"]
+    else:
+        narrative = (
+            f"该受试者预测为{predicted_class_cn}（置信度{confidence:.1%}）。"
+            f"{sections['attention_narrative']}"
+            f"{sections['abnormal_narrative']}"
+        )
+        attention_narrative = sections["attention_narrative"]
+        abnormal_narrative = sections["abnormal_narrative"]
+
     return {
         "subject_id": str(subject_id),
         "predicted_class": predicted_class,
@@ -387,6 +587,11 @@ def generate_subject_report(
         "views_used": list(views_used),
         "roi_findings": findings,
         **sections,
+        **viewwise_sections,
+        "attention_narrative": attention_narrative,
+        "abnormal_narrative": abnormal_narrative,
+        "subject_level_attention_narrative": sections["attention_narrative"],
+        "subject_level_abnormal_narrative": sections["abnormal_narrative"],
         "narrative": narrative,
     }
 

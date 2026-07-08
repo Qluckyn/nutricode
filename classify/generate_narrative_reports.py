@@ -17,6 +17,8 @@ from classify.narrative_report import (  # noqa: E402
     ROI_NAMES,
     aggregate_subject_descriptors,
     aggregate_subject_views,
+    collect_subject_view_attention,
+    collect_subject_view_descriptors,
     build_thresholds,
     generate_subject_report,
     iter_image_paths,
@@ -24,7 +26,7 @@ from classify.narrative_report import (  # noqa: E402
 
 
 DEFAULT_DESCRIPTOR_CACHE = "/root/autodl-tmp/runs/roi_descriptor_cache_with_test.json"
-DEFAULT_ATTENTION_RECORDS = "/root/autodl-tmp/runs/vis/roi_validation_full/roi_attention_records.json"
+DEFAULT_ATTENTION_RECORDS = "/root/autodl-tmp/runs/vis/roi_validation_full_face/roi_attention_records.json"
 DEFAULT_REAL_TRAIN_DIR = "/root/autodl-tmp/runs/cv/fold_4/my_dataset_binary/seed0"
 DEFAULT_OUTPUT_DIR = "/root/autodl-tmp/runs/narrative_reports"
 
@@ -114,6 +116,8 @@ def _write_csv(reports, path):
         "abnormal_only_rois",
         "attention_narrative",
         "abnormal_narrative",
+        "subject_level_attention_narrative",
+        "subject_level_abnormal_narrative",
         "narrative",
     ]
     with open(path, "w", encoding="utf-8", newline="") as f:
@@ -134,6 +138,8 @@ def _write_csv(reports, path):
                 "abnormal_only_rois": json.dumps(report.get("abnormal_only_rois", []), ensure_ascii=False),
                 "attention_narrative": report.get("attention_narrative", ""),
                 "abnormal_narrative": report.get("abnormal_narrative", ""),
+                "subject_level_attention_narrative": report.get("subject_level_attention_narrative", ""),
+                "subject_level_abnormal_narrative": report.get("subject_level_abnormal_narrative", ""),
                 "narrative": report["narrative"],
             })
 
@@ -177,6 +183,12 @@ def generate_reports(args):
     for true_class, subject_id in subject_keys:
         descriptor_values = aggregate_subject_descriptors(descriptor_cache, subject_id, image_dir=args.test_image_dir)
         attention_scores = aggregate_subject_views(attention_records, subject_id)
+        descriptor_view_scores = collect_subject_view_descriptors(
+            descriptor_cache,
+            subject_id,
+            image_dir=args.test_image_dir,
+        )
+        attention_view_scores = collect_subject_view_attention(attention_records, subject_id)
         predicted_class, mal_prob = _subject_prediction(attention_records, subject_id, args.target_class)
         report = generate_subject_report(
             subject_id,
@@ -186,6 +198,8 @@ def generate_reports(args):
             predicted_class=predicted_class,
             malnourished_probability=mal_prob,
             attended_threshold=args.attended_threshold,
+            descriptor_view_scores=descriptor_view_scores,
+            attention_view_scores=attention_view_scores,
         )
         report_dict = _report_to_dict(report)
         report_dict["true_class"] = true_class
