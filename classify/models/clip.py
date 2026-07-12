@@ -11,6 +11,50 @@ from timm.models._manipulate import checkpoint_seq
 from models.lora import lora_replace_attention_layers
 from util_data import SUBSET_NAMES, TEMPLATES_SMALL
 
+
+# 手部实验固定使用“整体软组织 + 第一骨间肌”两类可见征象提示词。
+# 每个类别的两条文本特征取平均；zero-shot 与 LoRA 共用同一组文本原型。
+# HAND_CLASS_PROMPTS = {
+#     "malnourished_hand": [
+#         "a clinical photograph of thin and bony hands with reduced soft tissue",
+#         "a clinical photograph of hands showing first dorsal interosseous muscle wasting between the thumb and index finger",
+#     ],
+#     "normal_hand": [
+#         "a clinical photograph of healthy hands with normal soft tissue",
+#         "a clinical photograph of hands showing preserved first dorsal interosseous muscle bulk between the thumb and index finger",
+#     ],
+# }
+# HAND_CLASS_PROMPTS = {
+#     "malnourished_hand": [
+#         "a clinical photograph of thin and bony hands with reduced soft tissue",
+#         "a clinical photograph of hands showing reduced fullness in the web space between the thumb and index finger",
+#     ],
+#     "normal_hand": [
+#         "a clinical photograph of healthy hands with normal soft tissue",
+#         "a clinical photograph of hands showing preserved fullness in the web space between the thumb and index finger",
+#     ],
+# }
+
+HAND_CLASS_PROMPTS = {
+    "malnourished_hand": [
+        "a clinical photograph of thin and bony hands with reduced soft tissue",
+        "a close-up clinical image of wasted hands with reduced muscle and fat",
+        "a clinical photograph of hands showing reduced fullness in the web space between the thumb and index finger",
+    ],
+    "normal_hand": [
+        "a clinical photograph of healthy hands with normal soft tissue",
+        "a close-up clinical image of healthy hands with normal muscle and fat",
+        "a clinical photograph of hands showing preserved fullness in the web space between the thumb and index finger",
+    ],
+}
+
+
+def get_class_texts(dataset, classname, dataset_name, templates):
+    """手部返回固定提示词，其他数据集保持原有模板构造方式。"""
+    if dataset == "hand_nutrition" and classname in HAND_CLASS_PROMPTS:
+        return list(HAND_CLASS_PROMPTS[classname])
+    return [template.format(dataset_name, classname) for template in templates]
+
 def get_dataset_name_for_template(dataset):
     dataset_name = {
         "imagenet_100": "",
@@ -25,7 +69,8 @@ def get_dataset_name_for_template(dataset):
         "food101": "food ",
         "sun397": "scene ",
         "caltech101": "",
-        "my_dataset": "human ",
+        # 原始手部映射："my_dataset": "human ",
+        "hand_nutrition": "human ",
     }[dataset]
     return dataset_name
 
@@ -105,10 +150,15 @@ class CLIP(nn.Module):
         texts = []
         for classname in SUBSET_NAMES[self.dataset]:
 
-            class_texts = []
-            for template in self.templates:
-                class_texts.append(
-                    template.format(self.dataset_name, classname))
+            # 原始提示构造逻辑保留如下：
+            # class_texts = []
+            # for template in self.templates:
+            #     class_texts.append(template.format(self.dataset_name, classname))
+            # 手部类别使用固定且可读的自然语言提示，其他类别仍由原模板生成。
+            class_texts = get_class_texts(
+                self.dataset, classname, self.dataset_name, self.templates
+            )
+            print(f"类别 {classname} 的CLIP提示: {class_texts}")
 
             class_texts = clip.tokenize(class_texts)
 

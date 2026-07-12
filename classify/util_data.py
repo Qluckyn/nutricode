@@ -443,8 +443,11 @@ SUBSET_NAMES = {
         'tick', 'trilobite', 'umbrella', 'watch', 'water_lilly',
         'wheelchair', 'wild_cat', 'windsor_chair', 'wrench', 'yin_yang'
      ],
-    'my_dataset': [
-        'malnourished_face', 'normal_face'
+    # 'my_dataset': [
+    #     'malnourished_face', 'normal_face'
+    # ]
+    'hand_nutrition': [
+        'malnourished_hand', 'normal_hand'
     ]
 }
 

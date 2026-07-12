@@ -64,6 +64,15 @@ def load_data_loader(args, descriptor_cache=None):
         is_pooled_fewshot=args.is_pooled_fewshot,
         model_type=args.model_type,
         descriptor_cache=descriptor_cache,
+        use_hand_transforms=getattr(args, "use_hand_transforms", False),
+        hand_pose=getattr(args, "hand_pose", "all"),
+        is_hand_subject_balanced=getattr(
+            args, "is_hand_subject_balanced", False
+        ),
+        hand_subjects_per_class=getattr(args, "hand_subjects_per_class", 12),
+        sampling_seed=args.seed,
+        sampling_history_path=(getattr(args, "sampling_history_path", None)
+                               or ospj(args.output_dir, "sampling_history.json")),
     )
     return train_loader, test_loader
 
@@ -205,11 +214,24 @@ def main(args):
     best_stats = {}
     best_top1 = 0.
 
+    # 原始逻辑始终使用 test 选择最佳 checkpoint；新增开关后可按需保留。
+    # True：执行原始逐轮测试逻辑；False：固定训练轮数，最后仅测试一次。
+    select_best_on_test = getattr(args, "select_best_on_test", True)
+    selection_mode = "逐轮test选最佳模型" if select_best_on_test else "固定轮数后仅测试一次"
+    print(f"[INFO] checkpoint选择模式：{selection_mode}")
+
     for epoch in range(0, args.epochs):
         train_stats, best_stats, best_top1 = train_one_epoch(
             model, criterion, train_loader, optimizer, scheduler, epoch, fp16_scaler, cutmix_or_mixup, args,
             val_loader, best_stats, best_top1, 
         )
+
+        # False 模式不接触 test；记录训练日志后直接进入下一轮。
+        if not select_best_on_test:
+            if args.log == 'wandb':
+                train_stats.update({"epoch": epoch})
+                wandb.log(train_stats)
+            continue
 
 #         if args.dataset in ("imagenet", "sun397"):
 #             # evaluate ten times in each epoch
@@ -237,11 +259,27 @@ def main(args):
             wandb.log(train_stats)
             wandb.log(test_stats)
 
+    # False 模式固定训练 args.epochs 轮，保存最终模型供唯一一次测试使用。
+    # 原始 True 模式仍由上方代码保存 best_checkpoint.pth。
+    if not select_best_on_test:
+        if args.epochs <= 0:
+            raise ValueError("固定轮数训练要求 epochs > 0")
+        final_epoch = args.epochs - 1
+        final_checkpoint_name = "final_checkpoint.pth"
+        save_model(
+            args, model, optimizer, final_epoch, fp16_scaler, final_checkpoint_name
+        )
+        args.eval_ckpt = ospj(args.output_dir, final_checkpoint_name)
+        print(f"[INFO] 已保存固定轮数最终模型：{args.eval_ckpt}")
+
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print("Training time {}".format(total_time_str))
     # 在训练结束后添加预测分析
-    print("\n=> 加载最佳模型进行预测分析...")
+    if select_best_on_test:
+        print("\n=> 加载最佳模型进行预测分析...")
+    else:
+        print("\n=> 加载固定轮数最终模型，仅执行一次测试分析...")
     prediction_stats = analyze_predictions(args, model, val_loader)
 
     total_time = time.time() - start_time
@@ -264,6 +302,12 @@ def train_one_epoch(
     header = "Epoch: [{}/{}]".format(epoch, args.epochs)
 
     model.train()
+
+    # 手部动态采样器每轮使用 seed + epoch，确保正常受试者抽样可复现。
+    # 原始 DataLoader 没有 set_epoch 接口，因此仅在采样器支持时调用。
+    data_sampler = getattr(data_loader, "sampler", None)
+    if hasattr(data_sampler, "set_epoch"):
+        data_sampler.set_epoch(epoch)
 
     for it, batch in enumerate(
         metric_logger.log_every(data_loader, 100, header)
@@ -458,8 +502,13 @@ def eval(model, criterion, data_loader, epoch, fp16_scaler, args):
         acc1, = get_accuracy(output, label, topk=(1,))
 
         # record logs
-        metric_logger.update(loss=loss.item())
-        metric_logger.update(top1=acc1.item())
+        # 原始逻辑按batch等权平均：
+        # metric_logger.update(loss=loss.item())
+        # metric_logger.update(top1=acc1.item())
+        # 测试集最后一个batch可能不足8张，必须按实际样本数加权后再选择checkpoint。
+        batch_sample_count = int(label.shape[0])
+        metric_logger.meters["loss"].update(loss.item(), n=batch_sample_count)
+        metric_logger.meters["top1"].update(acc1.item(), n=batch_sample_count)
         #metric_logger.update(top5=acc5.item())
 
         if is_last:
@@ -560,6 +609,48 @@ def _binary_auc_score(y_true, y_score):
     return float(auc)
 
 
+def _binary_auc_score_with_ties(y_true, y_score):
+    """并列预测分数按0.5计分，避免原顺序排名法在常数分数时偏离0.5。"""
+    y_true = np.asarray(y_true).astype(int)
+    y_score = np.asarray(y_score, dtype=float)
+    positive_scores = y_score[y_true == 1]
+    negative_scores = y_score[y_true == 0]
+    if len(positive_scores) == 0 or len(negative_scores) == 0:
+        return float("nan")
+    comparisons = positive_scores[:, None] - negative_scores[None, :]
+    return float(np.mean(comparisons > 0) + 0.5 * np.mean(comparisons == 0))
+
+
+def _binary_pr_auc_score(y_true, y_score):
+    """按不同阈值分组计算Average Precision，正确处理并列概率。"""
+    y_true = np.asarray(y_true).astype(int)
+    y_score = np.asarray(y_score, dtype=float)
+    positive_count = int((y_true == 1).sum())
+    if positive_count == 0:
+        return float("nan")
+    order = np.argsort(-y_score, kind="mergesort")
+    sorted_true = y_true[order]
+    sorted_score = y_score[order]
+    true_positive = 0
+    false_positive = 0
+    previous_recall = 0.0
+    average_precision = 0.0
+    index = 0
+    while index < len(sorted_true):
+        group_end = index + 1
+        while group_end < len(sorted_true) and sorted_score[group_end] == sorted_score[index]:
+            group_end += 1
+        group = sorted_true[index:group_end]
+        true_positive += int((group == 1).sum())
+        false_positive += int((group == 0).sum())
+        recall = true_positive / positive_count
+        precision = true_positive / max(1, true_positive + false_positive)
+        average_precision += (recall - previous_recall) * precision
+        previous_recall = recall
+        index = group_end
+    return float(average_precision)
+
+
 def _binary_metrics(y_true, y_score, threshold=0.5):
     y_true = np.asarray(y_true).astype(int)
     y_score = np.asarray(y_score)
@@ -579,14 +670,26 @@ def _binary_metrics(y_true, y_score, threshold=0.5):
     mcc_den = math.sqrt(max(1e-12, (tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)))
     mcc = mcc_num / mcc_den
 
-    auc = _binary_auc_score(y_true, y_score)
+    # 原始实现：auc = _binary_auc_score(y_true, y_score)
+    # 新实现对并列概率按0.5计分，并补充PR-AUC与Balanced Accuracy。
+    auc = _binary_auc_score_with_ties(y_true, y_score)
+    pr_auc = _binary_pr_auc_score(y_true, y_score)
+    balanced_accuracy = 0.5 * (rec + spe)
     return {
+        "accuracy": float(acc),
+        "balanced_accuracy": float(balanced_accuracy),
+        "roc_auc": float(auc),
+        "pr_auc": float(pr_auc),
+        "precision": float(prec),
+        "sensitivity": float(rec),
+        "specificity": float(spe),
         "acc": float(acc),
         "auc": float(auc),
         "f1": float(f1),
         "sen": float(rec),
         "spe": float(spe),
         "mcc": float(mcc),
+        "threshold": float(threshold),
         "tp": tp,
         "tn": tn,
         "fp": fp,
@@ -596,6 +699,14 @@ def _binary_metrics(y_true, y_score, threshold=0.5):
 @torch.no_grad()
 def analyze_predictions(args, model, data_loader):
     """在训练结束后加载最佳模型权重并分析预测结果"""
+    # 手部任务使用独立评估模块；下方原始人脸分析代码完整保留作为其他数据集回退。
+    if args.dataset == "hand_nutrition":
+        from hand_evaluation import analyze_hand_predictions
+
+        return analyze_hand_predictions(
+            args=args, model=model, data_loader=data_loader,
+            binary_metrics_fn=_binary_metrics,
+        )
     print("\n=== 预测结果分析 ===")
     
     # 加载最佳模型权重

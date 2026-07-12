@@ -23,7 +23,9 @@ class Logger(object):
     def __init__(self, outfile):
         self.terminal = sys.stdout
         self.log = open(outfile, "a")
-        sys.stdout = self.log
+        # 原始逻辑：sys.stdout = self.log，只写内部log.log，导致外层tee的train.log为空。
+        # 使用Logger自身同时写终端和文件，保留原日志并让实验入口捕获完整控制台输出。
+        sys.stdout = self
 
     def write(self, message):
         self.terminal.write(message)
@@ -31,6 +33,7 @@ class Logger(object):
 
     def flush(self):
         self.terminal.flush()
+        self.log.flush()
 
 
 def str2bool(v):
@@ -85,16 +88,42 @@ def set_local(args):
     with open(yaml_file, "r") as f:
         args_local = yaml.safe_load(f)
 
-    args.real_train_data_dir = args_local["real_train_data_dir"][args.dataset]
-    args.real_train_fewshot_data_dir = ospj(
-        args_local["real_train_fewshot_data_dir"][args.dataset], 
-        args.fewshot_seed
+    # 原始逻辑：真实训练集路径只能从 local.yaml 中读取。
+    # args.real_train_data_dir = args_local["real_train_data_dir"][args.dataset]
+    # 手部实验需要独立传入划分路径，因此优先使用命令行覆盖值。
+    args.real_train_data_dir = (
+        args.real_train_data_dir_override
+        or args_local["real_train_data_dir"][args.dataset]
     )
-    args.real_test_data_dir = args_local["real_test_data_dir"][args.dataset]
-    args.synth_train_data_dir = args_local["synth_train_data_dir"]
-    args.metadata_dir = args_local["metadata_dir"]
-    args.clip_download_dir = args_local["clip_download_dir"]
-    args.wandb_key = args_local["wandb_key"]
+    # 原始逻辑：无论是否启用 few-shot，都会强制读取对应配置。
+    # args.real_train_fewshot_data_dir = ospj(
+    #     args_local["real_train_fewshot_data_dir"][args.dataset],
+    #     args.fewshot_seed
+    # )
+    # 手部真实数据基线不使用 few-shot；配置缺失时回退到真实训练目录。
+    fewshot_dirs = args_local.get("real_train_fewshot_data_dir") or {}
+    fewshot_root = fewshot_dirs.get(args.dataset)
+    if fewshot_root:
+        args.real_train_fewshot_data_dir = ospj(fewshot_root, args.fewshot_seed)
+    else:
+        args.real_train_fewshot_data_dir = args.real_train_data_dir
+    # 原始逻辑：真实测试集路径只能从 local.yaml 中读取。
+    # args.real_test_data_dir = args_local["real_test_data_dir"][args.dataset]
+    # 测试集也允许覆盖，以免改写现有人脸实验的 local.yaml。
+    args.real_test_data_dir = (
+        args.real_test_data_dir_override
+        or args_local["real_test_data_dir"][args.dataset]
+    )
+    # 原始逻辑会强制索引以下可选项，local.yaml 注释这些字段时会触发 KeyError。
+    # args.synth_train_data_dir = args_local["synth_train_data_dir"]
+    # args.metadata_dir = args_local["metadata_dir"]
+    # args.clip_download_dir = args_local["clip_download_dir"]
+    # args.wandb_key = args_local["wandb_key"]
+    # 真实手部实验不依赖合成目录和 metadata，因此允许安全缺省。
+    args.synth_train_data_dir = args_local.get("synth_train_data_dir", "")
+    args.metadata_dir = args_local.get("metadata_dir", "metadata")
+    args.clip_download_dir = args_local.get("clip_download_dir")
+    args.wandb_key = args_local.get("wandb_key")
 
 
 def set_output_dir(args):
@@ -208,9 +237,46 @@ def get_args():
 
     # Data
     parser.add_argument('--dataset', type=str, default='imagenet')
+    parser.add_argument(
+        "--real_train_data_dir_override",
+        type=str2none,
+        default=None,
+        help="覆盖 local.yaml 中的真实训练集目录，供手部实验入口使用。",
+    )
+    parser.add_argument(
+        "--real_test_data_dir_override",
+        type=str2none,
+        default=None,
+        help="覆盖 local.yaml 中的真实测试集目录，供手部实验入口使用。",
+    )
     parser.add_argument("--n_img_per_cls", type=int2none, default=100)
     parser.add_argument("--is_mix_aug", type=str2bool, default=False,
                         help="use mixup and cutmix")
+    parser.add_argument(
+        "--hand_pose", type=str, default="all", choices=("all", "01", "02"),
+        help="手部姿势过滤：all保留_01和_02，01或02仅保留对应文件。",
+    )
+    parser.add_argument(
+        "--use_hand_transforms", type=str2bool, default=False,
+        help="是否启用保留完整双手的方形补边和轻量几何增强。",
+    )
+    parser.add_argument(
+        "--is_hand_subject_balanced", type=str2bool, default=False,
+        help="是否按受试者执行手部12:12动态平衡采样。",
+    )
+    parser.add_argument(
+        "--hand_subjects_per_class", type=int, default=12,
+        help="手部动态采样时每个类别每轮使用的受试者数。",
+    )
+    parser.add_argument(
+        "--sampling_history_path", type=str2none, default=None,
+        help="可选：保存每轮正常受试者抽样记录的JSON路径。",
+    )
+    # 手部探索实验可选择保留原始的“使用 test 选择最佳 checkpoint”方式。
+    parser.add_argument(
+        "--select_best_on_test", type=str2bool, default=True,
+        help="True时每轮在test评估并选最佳模型；False时固定训练轮数后仅测试一次。",
+    )
     parser.add_argument("--is_pooled_fewshot", type=str2bool, default=False)
     parser.add_argument("--lambda_1", type=float2none, default=0,
                         help="weight for loss from real/synth data")

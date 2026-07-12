@@ -1,14 +1,16 @@
 import os
+import random
+import re
 from os.path import expanduser
 from os.path import join as ospj
 import json
 import pickle
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import Dataset, ConcatDataset
+from torch.utils.data import Dataset, ConcatDataset, Sampler
 import torchvision as tv
 from collections import defaultdict
 import warnings
@@ -36,7 +38,7 @@ class FixedLabelImageFolder(Dataset):
         self.class_names = class_names  # 传入SUBSET_NAMES
         self.class_to_idx = {name: i for i, name in enumerate(class_names)}  # 强制映射
         self.descriptor_cache = descriptor_cache  # ROI 描述符缓存，默认关闭以保持兼容
-        
+
         # 收集所有样本路径和标签
         self.samples = []
         for cls_name in class_names:
@@ -45,11 +47,13 @@ class FixedLabelImageFolder(Dataset):
                 warnings.warn(f"警告：未找到类别文件夹 {cls_dir}，将跳过该类别")
                 continue
             # 遍历文件夹中的图片文件
-            for img_name in os.listdir(cls_dir):
+            # 原始逻辑：for img_name in os.listdir(cls_dir):
+            # 排序后加载，保证相同随机种子下样本索引完全可复现。
+            for img_name in sorted(os.listdir(cls_dir)):
                 if any(img_name.endswith(ext) for ext in IMG_EXTENSIONS):
                     img_path = os.path.join(cls_dir, img_name)
                     self.samples.append((img_path, self.class_to_idx[cls_name]))
-        
+
         if len(self.samples) == 0:
             raise RuntimeError("未找到任何有效图片样本！")
 
@@ -69,6 +73,217 @@ class FixedLabelImageFolder(Dataset):
 
     def __len__(self):
         return len(self.samples)
+
+HAND_SUBJECT_PATTERN = re.compile(r"^(?P<subject>\d+)_(?P<pose>01|02)(?:$|[_\-.])")
+
+
+def filter_hand_dataset_by_pose(dataset, hand_pose):
+    """按文件名姿势编号过滤手部数据；训练集和测试集必须共用该函数。"""
+    if hand_pose not in {"all", "01", "02"}:
+        raise ValueError(f"hand_pose必须为all、01或02，实际为：{hand_pose}")
+    if hand_pose == "all":
+        return dataset
+
+    filtered_samples = []
+    for path, label in dataset.samples:
+        match = HAND_SUBJECT_PATTERN.match(os.path.basename(path))
+        if not match:
+            raise ValueError(f"无法从文件名解析手部受试者ID和姿势：{path}")
+        if match.group("pose") == hand_pose:
+            filtered_samples.append((path, label))
+    if not filtered_samples:
+        raise ValueError(f"hand_pose={hand_pose}过滤后没有任何手部图片")
+
+    dataset.samples = filtered_samples
+    # FixedLabelImageFolder主要使用samples；同时维护targets以兼容通用数据工具。
+    dataset.targets = [label for _, label in filtered_samples]
+    print(f"[手部姿势过滤] hand_pose={hand_pose}, images={len(filtered_samples)}")
+    return dataset
+
+
+class PadToSquare:
+    """用白色补边扩展成正方形，避免中心裁剪切掉两侧手部。"""
+
+    def __init__(self, fill=(255, 255, 255)):
+        self.fill = fill
+
+    def __call__(self, image):
+        width, height = image.size
+        size = max(width, height)
+        left = (size - width) // 2
+        right = size - width - left
+        top = (size - height) // 2
+        bottom = size - height - top
+        return ImageOps.expand(
+            image, border=(left, top, right, bottom), fill=self.fill
+        )
+
+
+def get_hand_transforms(model_type):
+    """返回手部专用的轻量训练增强和确定性测试预处理。"""
+    if model_type == "clip":
+        norm_mean, norm_std = CLIP_NORM_MEAN, CLIP_NORM_STD
+    elif model_type == "resnet50":
+        norm_mean, norm_std = NORM_MEAN, NORM_STD
+    else:
+        raise ValueError(f"不支持的模型类型：{model_type}")
+
+    train_transform = tv.transforms.Compose([
+        tv.transforms.Lambda(lambda x: x.convert("RGB")),
+        PadToSquare(fill=(255, 255, 255)),
+        tv.transforms.Resize(
+            (224, 224), interpolation=tv.transforms.InterpolationMode.BICUBIC
+        ),
+        tv.transforms.RandomHorizontalFlip(p=0.5),
+        tv.transforms.RandomAffine(
+            degrees=5,
+            translate=(0.03, 0.03),
+            scale=(0.95, 1.05),
+            interpolation=tv.transforms.InterpolationMode.BICUBIC,
+            fill=255,
+        ),
+        tv.transforms.ToTensor(),
+        tv.transforms.Normalize(norm_mean, norm_std),
+    ])
+    test_transform = tv.transforms.Compose([
+        tv.transforms.Lambda(lambda x: x.convert("RGB")),
+        PadToSquare(fill=(255, 255, 255)),
+        tv.transforms.Resize(
+            (224, 224), interpolation=tv.transforms.InterpolationMode.BICUBIC
+        ),
+        tv.transforms.ToTensor(),
+        tv.transforms.Normalize(norm_mean, norm_std),
+    ])
+    return train_transform, test_transform
+
+
+class HandSubjectBalancedSampler(Sampler):
+    """每轮使用全部12名营养不良者，并随机抽取12名正常者。"""
+
+    def __init__(self, dataset, subjects_per_class=12, seed=22, history_path=None, hand_pose="all"):
+        self.dataset = dataset
+        self.subjects_per_class = subjects_per_class
+        self.seed = seed
+        self.epoch = 0
+        self.history_path = history_path
+        self.history = {}
+        self.hand_pose = hand_pose
+        self.images_per_subject = 1 if hand_pose in {"01", "02"} else 2
+
+        required_classes = {"malnourished_hand", "normal_hand"}
+        if set(dataset.class_to_idx) != required_classes:
+            raise ValueError("手部采样要求类别恰好为 malnourished_hand 和 normal_hand")
+        self.mal_label = dataset.class_to_idx["malnourished_hand"]
+        self.normal_label = dataset.class_to_idx["normal_hand"]
+        self.subject_indices = {self.mal_label: {}, self.normal_label: {}}
+
+        for index, (path, label) in enumerate(dataset.samples):
+            match = HAND_SUBJECT_PATTERN.match(os.path.basename(path))
+            if not match:
+                raise ValueError(f"无法从文件名解析手部受试者ID和姿势：{path}")
+            subject_id = match.group("subject")
+            self.subject_indices[label].setdefault(subject_id, []).append(index)
+
+        for label, groups in self.subject_indices.items():
+            incomplete = {
+                subject_id: len(indices)
+                for subject_id, indices in groups.items()
+                if len(indices) != self.images_per_subject
+            }
+            if incomplete:
+                raise ValueError(
+                    f"hand_pose={self.hand_pose}时每名受试者应有"
+                    f"{self.images_per_subject}张图片：label={label}, {incomplete}"
+                )
+
+        self.mal_subjects = sorted(self.subject_indices[self.mal_label], key=int)
+        self.normal_subjects = sorted(self.subject_indices[self.normal_label], key=int)
+        if len(self.mal_subjects) != self.subjects_per_class:
+            raise ValueError(
+                f"营养不良训练者应为{self.subjects_per_class}人，"
+                f"实际为{len(self.mal_subjects)}人"
+            )
+        if len(self.normal_subjects) < self.subjects_per_class:
+            raise ValueError("正常训练者数量不足，无法进行平衡抽样")
+
+    def set_epoch(self, epoch):
+        """显式设置轮次，使本轮随机种子严格等于 base_seed + epoch。"""
+        self.epoch = int(epoch)
+
+    def __len__(self):
+        # 2个类别 × 每类受试者数 × 当前姿势对应的每人图片数。
+        return self.subjects_per_class * 2 * self.images_per_subject
+
+    def __iter__(self):
+
+        # 动态抽样
+        rng = random.Random(self.seed + self.epoch)
+        selected_normal = sorted(
+            rng.sample(self.normal_subjects, self.subjects_per_class), key=int
+        )
+        indices = []
+        for subject_id in self.mal_subjects:
+            indices.extend(self.subject_indices[self.mal_label][subject_id])
+        for subject_id in selected_normal:
+            indices.extend(self.subject_indices[self.normal_label][subject_id])
+        rng.shuffle(indices)
+
+        # 固定抽样
+        # # 固定选择12名正常受试者：所有epoch都由基础seed决定
+        # selection_rng = random.Random(self.seed)
+        # selected_normal = sorted(
+        #     selection_rng.sample(self.normal_subjects, self.subjects_per_class),
+        #     key=int,
+        # )
+        # # 每个epoch仍采用不同顺序训练
+        # shuffle_rng = random.Random(self.seed + self.epoch)
+        # indices = []
+        # for subject_id in self.mal_subjects:
+        #     indices.extend(self.subject_indices[self.mal_label][subject_id])
+        # for subject_id in selected_normal:
+        #     indices.extend(self.subject_indices[self.normal_label][subject_id])
+        # shuffle_rng.shuffle(indices)
+
+        # 动态抽样
+        record = {
+            "epoch": self.epoch,
+            "seed": self.seed + self.epoch,
+            "malnourished_subject_ids": self.mal_subjects,
+            "normal_subject_ids": selected_normal,
+            "subject_count_per_class": self.subjects_per_class,
+            "hand_pose": self.hand_pose,
+            "image_count_per_class": self.subjects_per_class * self.images_per_subject,
+        }
+        # 固定抽样
+        # record = {
+        #     "epoch": self.epoch,
+        #     "selection_seed": self.seed,
+        #     "shuffle_seed": self.seed + self.epoch,
+        #     "sampling_mode": "fixed",
+        #     "malnourished_subject_ids": self.mal_subjects,
+        #     "normal_subject_ids": selected_normal,
+        #     "subject_count_per_class": self.subjects_per_class,
+        #     "image_count_per_class": self.subjects_per_class * 2,
+        # }
+        self.history[str(self.epoch)] = record
+        # 动态抽样
+        print(
+            f"[手部动态采样] epoch={self.epoch}, seed={self.seed + self.epoch}, "
+            f"normal_subject_ids={selected_normal}"
+        )
+        # 固定抽样
+        # print(
+        #     f"[手部固定采样] epoch={self.epoch}, "
+        #     f"selection_seed={self.seed}, shuffle_seed={self.seed + self.epoch}, "
+        #     f"normal_subject_ids={selected_normal}"
+        # )
+        if self.history_path:
+            history_path = os.path.abspath(self.history_path)
+            os.makedirs(os.path.dirname(history_path), exist_ok=True)
+            with open(history_path, "w", encoding="utf-8") as f:
+                json.dump(self.history, f, ensure_ascii=False, indent=2)
+        return iter(indices)
+
 
 def get_transforms(model_type):
     if model_type == "clip":
@@ -96,8 +311,8 @@ def get_transforms(model_type):
         tv.transforms.Lambda(lambda x: x.convert("RGB")),
         tv.transforms.RandAugment(),
         tv.transforms.RandomResizedCrop(
-            224, 
-            scale=(0.25, 1.0), 
+            224,
+            scale=(0.25, 1.0),
             interpolation=tv.transforms.InterpolationMode.BICUBIC,
             antialias=None,
         ),
@@ -109,7 +324,7 @@ def get_transforms(model_type):
     test_transform = tv.transforms.Compose([
         tv.transforms.Lambda(lambda x: x.convert("RGB")),
         tv.transforms.Resize(
-            224, 
+            224,
             interpolation=tv.transforms.functional.InterpolationMode.BICUBIC
         ),
         tv.transforms.CenterCrop(224),
@@ -122,14 +337,15 @@ def get_transforms(model_type):
 
 class ImageNetDatasetFromMetadata(Dataset):
     def __init__(
-        self, 
-        data_root, 
-        metadata_root, 
-        transform, 
-        proxy, 
-        target_label=None, 
+        self,
+        data_root,
+        metadata_root,
+        transform,
+        proxy,
+        target_label=None,
         n_img_per_cls=None,
-        dataset="my_dataset",
+        # 原始默认值：dataset="my_dataset"
+        dataset="hand_nutrition",
         n_shot=0,
         real_train_fewshot_data_dir='',
         is_pooled_fewshot=False,
@@ -140,7 +356,7 @@ class ImageNetDatasetFromMetadata(Dataset):
         self.image_ids = get_image_ids(self.metadata, proxy=proxy)
         self.image_labels = get_class_labels(self.metadata)
         self.is_pooled_fewshot = is_pooled_fewshot
-        
+
         if not is_pooled_fewshot:
             """ full data """
             if n_img_per_cls is not None:
@@ -153,7 +369,7 @@ class ImageNetDatasetFromMetadata(Dataset):
                 self.image_labels = tmp
 
             if target_label is not None:
-                self.image_labels = {k: v for k, v in self.image_labels.items() 
+                self.image_labels = {k: v for k, v in self.image_labels.items()
                                      if v == target_label}
 
             self.image_ids = list(self.image_labels.keys())
@@ -168,8 +384,8 @@ class ImageNetDatasetFromMetadata(Dataset):
                     ospj(real_train_fewshot_data_dir, class_name)))
                 real_subset = [
                     ospj(
-                        real_train_fewshot_data_dir, 
-                        class_name, 
+                        real_train_fewshot_data_dir,
+                        class_name,
                         real_img_paths[i]
                     ) for i in range(n_shot)
                 ]
@@ -181,7 +397,7 @@ class ImageNetDatasetFromMetadata(Dataset):
         x = Image.open(fpath)
         x = x.convert('RGB')
         return x
-            
+
     def __getitem__(self, idx):
         if not self.is_pooled_fewshot: # full data
             image_id = self.image_ids[idx]
@@ -203,15 +419,16 @@ class ImageNetDatasetFromMetadata(Dataset):
 
 class DatasetSynthImage(Dataset):
     def __init__(
-        self, 
-        synth_train_data_dir, 
-        transform, 
-        target_label=None, 
+        self,
+        synth_train_data_dir,
+        transform,
+        target_label=None,
         n_img_per_cls=None,
-        dataset='my_dataset', 
+        # 原始默认值：dataset='my_dataset'
+        dataset='hand_nutrition',
         n_shot=0,
-        real_train_fewshot_data_dir='', 
-        is_pooled_fewshot=False, 
+        real_train_fewshot_data_dir='',
+        is_pooled_fewshot=False,
         descriptor_cache=None,
         **kwargs
     ):
@@ -219,7 +436,7 @@ class DatasetSynthImage(Dataset):
         self.transform = transform
         self.is_pooled_fewshot = is_pooled_fewshot
         self.descriptor_cache = descriptor_cache
-        
+
         self.image_paths = []
         self.image_labels = []
         self.is_real_flags = []  # 0 for synth, 1 for real (few-shot pooled)
@@ -245,14 +462,14 @@ class DatasetSynthImage(Dataset):
             for label, class_name in enumerate(SUBSET_NAMES[dataset]):
                 real_img_paths = os.listdir(ospj(real_train_fewshot_data_dir, class_name))
                 real_subset = [
-                    ospj(real_train_fewshot_data_dir, class_name, real_img_paths[i]) 
+                    ospj(real_train_fewshot_data_dir, class_name, real_img_paths[i])
                     for i in range(n_shot)
                 ]
                 for i in range(reps):
                     self.image_paths.extend(real_subset)
                     self.image_labels.extend([label] * n_shot)
                     self.is_real_flags.extend([1] * n_shot)
-                
+
     def __getitem__(self, idx):
         image_path = self.image_paths[idx]
         image_label = self.image_labels[idx]
@@ -303,7 +520,7 @@ def filter_dset(dataset, n_img_per_cls, dataset_name):
         _labels = dataset.y
     else:
         raise ValueError("Please specify valid dataset.")
-    
+
     new_images = []
     new_labels = []
     for i in set(_labels):
@@ -312,7 +529,7 @@ def filter_dset(dataset, n_img_per_cls, dataset_name):
         idx = random.sample(range(len(candidates)), img_per_cls)
         new_images.extend([_images[candidates[j]] for j in idx])
         new_labels.extend([_labels[candidates[j]] for j in idx])
-    
+
     if dataset_name == 'pets':
         dataset._images = new_images
         dataset._labels = new_labels
@@ -373,8 +590,8 @@ def split_caltech(file_path, split, dataset):
         for row in reader:
             if row['split'] == split:
                 split_files.append(row['filename'])
-    ind_to_keep = [i for i in range(len(dataset.index)) if 
-                   os.path.join(dataset.categories[dataset.y[i]], 
+    ind_to_keep = [i for i in range(len(dataset.index)) if
+                   os.path.join(dataset.categories[dataset.y[i]],
                                 f'image_{dataset.index[i]:04d}.jpg') in split_files]
     dataset.index = [dataset.index[i] for i in ind_to_keep]
     dataset.y = [dataset.y[i] for i in ind_to_keep]
@@ -478,8 +695,9 @@ def get_data_loader(
     real_train_data_dir="",
     real_test_data_dir="",
     metadata_dir="metadata",
-    dataset="my_dataset", 
-    bs=32, 
+    # 原始默认值：dataset="my_dataset"
+    dataset="hand_nutrition",
+    bs=32,
     eval_bs=32,
     is_rand_aug=True,
     target_label=None,
@@ -490,8 +708,19 @@ def get_data_loader(
     is_pooled_fewshot=False,
     model_type=None,
     descriptor_cache=None,
+    use_hand_transforms=False,
+    hand_pose="all",
+    is_hand_subject_balanced=False,
+    hand_subjects_per_class=12,
+    sampling_seed=22,
+    sampling_history_path=None,
 ):
-    train_transform, test_transform = get_transforms(model_type)
+    # 原始逻辑：train_transform, test_transform = get_transforms(model_type)
+    # 仅手部入口启用方形补边和轻量增强，其他实验保持原预处理。
+    if use_hand_transforms:
+        train_transform, test_transform = get_hand_transforms(model_type)
+    else:
+        train_transform, test_transform = get_transforms(model_type)
     train_loader = None
     test_dataset = None  # 初始化test_dataset，避免作用域错误
 
@@ -564,7 +793,8 @@ def get_data_loader(
             )
             train_dataset = split_caltech(caltech_path_train, 'train', train_dataset)
             train_dataset = filter_dset(dataset=train_dataset, n_img_per_cls=n_img_per_cls, dataset_name=dataset)
-        elif dataset == 'my_dataset':
+        # 原始自定义数据分支：elif dataset == 'my_dataset':
+        elif dataset == 'hand_nutrition':
             # 训练集：强制按SUBSET_NAMES映射标签
             subset_names = SUBSET_NAMES[dataset]
             train_dataset = FixedLabelImageFolder(
@@ -573,6 +803,7 @@ def get_data_loader(
                 class_names=subset_names,
                 descriptor_cache=descriptor_cache,
             )
+            train_dataset = filter_hand_dataset_by_pose(train_dataset, hand_pose)
             # 打印训练集标签映射
             print("\n===== 训练集标签映射 =====")
             for idx, cls_name in enumerate(subset_names):
@@ -603,10 +834,30 @@ def get_data_loader(
         else:
             raise ValueError("Please specify a valid dataset.")
 
-        # 创建训练集DataLoader
+        hand_sampler = None
+        if is_hand_subject_balanced:
+            if not isinstance(train_dataset, FixedLabelImageFolder):
+                raise TypeError("手部动态平衡采样仅支持 FixedLabelImageFolder")
+            hand_sampler = HandSubjectBalancedSampler(
+                dataset=train_dataset,
+                subjects_per_class=hand_subjects_per_class,
+                seed=sampling_seed,
+                history_path=sampling_history_path,
+                hand_pose=hand_pose,
+            )
+
+        # 原始训练 DataLoader 逻辑保留如下：
+        # train_loader = torch.utils.data.DataLoader(
+        #     train_dataset, batch_size=bs,
+        #     shuffle=is_rand_aug,
+        #     prefetch_factor=4, pin_memory=True,
+        #     num_workers=16
+        # )
+        # 动态采样器负责可复现乱序，因此启用时关闭 DataLoader 自带 shuffle。
         train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=bs, 
-            shuffle=is_rand_aug,
+            train_dataset, batch_size=bs,
+            sampler=hand_sampler,
+            shuffle=is_rand_aug and hand_sampler is None,
             prefetch_factor=4, pin_memory=True,
             num_workers=16
         )
@@ -664,7 +915,8 @@ def get_data_loader(
             root=caltech_path_test, transform=test_transform, download=True
         )
         test_dataset = split_caltech(caltech_path_test, 'test', test_dataset)
-    elif dataset == 'my_dataset':
+    # 原始自定义数据分支：elif dataset == 'my_dataset':
+    elif dataset == 'hand_nutrition':
         # 测试集：强制按SUBSET_NAMES映射标签
         subset_names = SUBSET_NAMES[dataset]
         test_dataset = FixedLabelImageFolder(
@@ -672,6 +924,7 @@ def get_data_loader(
             transform=test_transform,
             class_names=subset_names
         )
+        test_dataset = filter_hand_dataset_by_pose(test_dataset, hand_pose)
         # 打印测试集标签映射
         print("\n===== 测试集标签映射 =====")
         for idx, cls_name in enumerate(subset_names):
@@ -696,11 +949,12 @@ def get_data_loader(
 
 def get_synth_train_data_loader(
     synth_train_data_dir="data_synth",
-    bs=32, 
+    bs=32,
     is_rand_aug=True,
     target_label=None,
     n_img_per_cls=None,
-    dataset='my_dataset',
+    # 原始默认值：dataset='my_dataset'
+    dataset='hand_nutrition',
     n_shot=0,
     real_train_fewshot_data_dir='',
     is_pooled_fewshot=False,
@@ -709,7 +963,7 @@ def get_synth_train_data_loader(
 ):
     train_transform, test_transform = get_transforms(model_type)
     train_dataset = DatasetSynthImage(
-        synth_train_data_dir=synth_train_data_dir, 
+        synth_train_data_dir=synth_train_data_dir,
         transform=train_transform if is_rand_aug else test_transform,
         target_label=target_label,
         n_img_per_cls=n_img_per_cls,
@@ -718,9 +972,9 @@ def get_synth_train_data_loader(
         real_train_fewshot_data_dir=real_train_fewshot_data_dir,
         is_pooled_fewshot=is_pooled_fewshot,
         descriptor_cache=descriptor_cache,
-    ) 
+    )
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=bs, 
+        train_dataset, batch_size=bs,
         shuffle=is_rand_aug,
         num_workers=16, pin_memory=True,
     )
