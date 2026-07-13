@@ -4,6 +4,8 @@ The code is based on https://github.com/huggingface/diffusers/blob/main/examples
 
 
 import copy
+import hashlib
+import json
 import logging
 import math
 import os
@@ -52,7 +54,9 @@ from huggingface_hub.utils import insecure_hashlib
 from packaging import version
 from peft import LoraConfig
 from peft.utils import get_peft_model_state_dict, set_peft_model_state_dict
-from PIL import Image
+# 原代码：from PIL import Image
+# 手部补边需要 ImageOps；Image 仍保留原用途。
+from PIL import Image, ImageOps
 from PIL.ImageOps import exif_transpose
 from torch.utils.data import Dataset
 from torchvision import transforms
@@ -60,13 +64,138 @@ from tqdm.auto import tqdm
 from transformers import AutoTokenizer, PretrainedConfig
 
 from util import natural_keys
-from util_data import SUBSET_NAMES, TEMPLATES_SMALL
+from util_data import HAND_LORA_PROMPTS, SUBSET_NAMES, TEMPLATES_SMALL
 from config import parse_args
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.26.0.dev0")
 
 logger = get_logger(__name__)
+
+
+HAND_DATASET_NAME = "hand_nutrition"
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
+
+
+class PadToSquare:
+    """保持宽高比，用固定颜色补成正方形，避免横向双手图被随机裁切。"""
+
+    def __init__(self, fill=(255, 255, 255)):
+        self.fill = fill
+
+    def __call__(self, image):
+        width, height = image.size
+        side = max(width, height)
+        left = (side - width) // 2
+        right = side - width - left
+        top = (side - height) // 2
+        bottom = side - height - top
+        return ImageOps.expand(
+            image,
+            border=(left, top, right, bottom),
+            fill=self.fill,
+        )
+
+
+def sha256_file(path):
+    """计算清单摘要，确保训练记录可以定位到阶段 A 的具体版本。"""
+    digest = hashlib.sha256()
+    with open(path, "rb") as file_obj:
+        for chunk in iter(lambda: file_obj.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def validate_hand_manifest(args):
+    """训练前核对阶段 A manifest 与四类目录，禁止误接面部或测试数据。"""
+    if args.dataset != HAND_DATASET_NAME:
+        return None
+    if args.hand_dataset_manifest is None:
+        raise ValueError("hand_nutrition 训练必须显式指定 --hand_dataset_manifest")
+
+    manifest_path = Path(args.hand_dataset_manifest).resolve()
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"缺少手部阶段 A manifest：{manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not manifest.get("is_hand_only"):
+        raise ValueError("manifest 未声明 is_hand_only=true，拒绝用于手部 LoRA")
+    if manifest_path.parent != Path(args.fewshot_data_dir).resolve():
+        raise ValueError(
+            "manifest 与 fewshot 根目录不一致："
+            f"manifest_root={manifest_path.parent}, data_root={args.fewshot_data_dir}"
+        )
+    expected_classes = set(SUBSET_NAMES[HAND_DATASET_NAME])
+    if set(manifest.get("class_counts", {})) != expected_classes:
+        raise ValueError("manifest 四类定义与 hand_nutrition 不一致")
+    if any(int(manifest["class_counts"][name]) <= 0 for name in expected_classes):
+        raise ValueError("manifest 中存在空的手部 LoRA 类别")
+    if manifest.get("excluded_test_subject_ids") is None:
+        raise ValueError("manifest 缺少测试受试者排除记录")
+
+    records = manifest.get("records", [])
+    record_counts = {name: 0 for name in expected_classes}
+    for record in records:
+        class_name = record.get("lora_class")
+        if class_name not in expected_classes:
+            raise ValueError(f"manifest 含未知手部类别：{class_name}")
+        image_path = Path(record["output_path"])
+        if not image_path.is_file():
+            raise FileNotFoundError(f"manifest 记录的训练图片不存在：{image_path}")
+        if sha256_file(image_path) != record.get("sha256"):
+            raise ValueError(f"训练图片与阶段 A 摘要不一致：{image_path}")
+        record_counts[class_name] += 1
+    if record_counts != {
+        name: int(manifest["class_counts"][name]) for name in expected_classes
+    }:
+        raise ValueError(
+            f"manifest records 与 class_counts 不一致：records={record_counts}"
+        )
+
+    selected_ids = manifest.get("selected_subject_ids", {})
+    excluded_ids = manifest["excluded_test_subject_ids"]
+    selected_all = set().union(*(set(ids) for ids in selected_ids.values()))
+    excluded_all = set().union(*(set(ids) for ids in excluded_ids.values()))
+    overlap = selected_all & excluded_all
+    if overlap:
+        raise ValueError(f"manifest 中训练与测试受试者重叠：{sorted(overlap)}")
+    return {
+        "path": str(manifest_path),
+        "sha256": sha256_file(manifest_path),
+        "class_counts": manifest["class_counts"],
+        "selected_subject_ids": manifest.get("selected_subject_ids"),
+    }
+
+
+def write_hand_training_metadata(args, train_dataset, manifest_info, preview_paths):
+    """保存手部训练的完整配置和输入清单，面部流程不写入该文件。"""
+    if args.dataset != HAND_DATASET_NAME:
+        return
+    class_name = (
+        "dataset-wise"
+        if args.target_class_idx is None
+        else SUBSET_NAMES[args.dataset][args.target_class_idx]
+    )
+    serializable_args = {
+        key: str(value) if isinstance(value, Path) else value
+        for key, value in vars(args).items()
+        if key != "validation_images"
+    }
+    metadata = {
+        "schema_version": 1,
+        "task": "hand_sd_lora_training",
+        "class_name": class_name,
+        "class_prompt": HAND_LORA_PROMPTS.get(class_name),
+        "manifest": manifest_info,
+        "training_images": [str(Path(path).resolve()) for path in train_dataset.instance_images_path],
+        "preprocessed_previews": preview_paths,
+        "arguments": serializable_args,
+    }
+    metadata_path = Path(args.output_dir) / "hand_training_metadata.json"
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
 
 def save_model_card(
     repo_id: str,
@@ -175,6 +304,7 @@ class DataDreamDataset(Dataset):
             "caltech101": "",
             "my_dataset": "human ",
             "my_dataset_binary": "human ",
+            "hand_nutrition": "",
         }[dataset]
         self.target_class_idx = target_class_idx
 
@@ -189,19 +319,36 @@ class DataDreamDataset(Dataset):
         ) = self.get_instance_data_list()
         self._length = self.num_instance_images
 
-        tf_crop = (
-            transforms.CenterCrop(size) if center_crop else transforms.RandomCrop(size)
-        )
-        self.image_transforms = transforms.Compose(
-            [
-                transforms.Resize(
-                    size, interpolation=transforms.InterpolationMode.BILINEAR
-                ),
-                tf_crop,
-                transforms.ToTensor(),
-                transforms.Normalize([0.5], [0.5]),
-            ]
-        )
+        if self.dataset == HAND_DATASET_NAME:
+            # 手部原图为横向双手构图：先补白为正方形，再整体缩放，禁止随机裁剪和翻转。
+            self.image_transforms = transforms.Compose(
+                [
+                    PadToSquare(fill=(255, 255, 255)),
+                    transforms.Resize(
+                        (size, size),
+                        interpolation=transforms.InterpolationMode.BILINEAR,
+                    ),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.5], [0.5]),
+                ]
+            )
+        else:
+            # 原始面部/通用数据预处理完整保留，避免手部适配改变既有实验。
+            tf_crop = (
+                transforms.CenterCrop(size)
+                if center_crop
+                else transforms.RandomCrop(size)
+            )
+            self.image_transforms = transforms.Compose(
+                [
+                    transforms.Resize(
+                        size, interpolation=transforms.InterpolationMode.BILINEAR
+                    ),
+                    tf_crop,
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.5], [0.5]),
+                ]
+            )
 
     def get_instance_data_list(self):
         instance_images_path = []
@@ -213,7 +360,17 @@ class DataDreamDataset(Dataset):
                 else:
                     continue
             data_dir = ospj(self.fewshot_data_dir, classname)
-            images_path = [ospj(data_dir, fname) for fname in os.listdir(data_dir)]
+            # 原代码：
+            # images_path = [ospj(data_dir, fname) for fname in os.listdir(data_dir)]
+            # 仅接收真实图片文件，防止 .ipynb_checkpoints、manifest 等被当作训练图。
+            if not os.path.isdir(data_dir):
+                raise FileNotFoundError(f"Missing class directory: {data_dir}")
+            images_path = [
+                ospj(data_dir, fname)
+                for fname in os.listdir(data_dir)
+                if os.path.isfile(ospj(data_dir, fname))
+                and Path(fname).suffix.lower() in IMAGE_SUFFIXES
+            ]
             images_path.sort(key=natural_keys)
             if self.n_shot is not None:
                 images_path = images_path[: self.n_shot]
@@ -226,6 +383,12 @@ class DataDreamDataset(Dataset):
 
         num_instance_images = len(instance_images_path)
 
+        if num_instance_images == 0:
+            raise RuntimeError(
+                f"No valid training images found: dataset={self.dataset}, "
+                f"target_class_idx={self.target_class_idx}"
+            )
+
         return instance_images_path, instance_prompts, num_instance_images
 
     def __len__(self):
@@ -237,8 +400,13 @@ class DataDreamDataset(Dataset):
         instance_image = Image.open(self.instance_images_path[instance_idx])
         instance_image = exif_transpose(instance_image)
         instance_prompt = self.instance_prompts[instance_idx]
-        template = random.choice(self.templates)
-        instance_prompt = template.format(self.dataset_name, instance_prompt)
+        if self.dataset == HAND_DATASET_NAME:
+            # 手部使用固定临床表型与姿势 prompt，不能把下划线类别名直接交给文本编码器。
+            instance_prompt = HAND_LORA_PROMPTS[instance_prompt]
+        else:
+            # 原代码保留：通用和面部数据继续随机选择 TEMPLATES_SMALL。
+            template = random.choice(self.templates)
+            instance_prompt = template.format(self.dataset_name, instance_prompt)
 
         if not instance_image.mode == "RGB":
             instance_image = instance_image.convert("RGB")
@@ -253,6 +421,24 @@ class DataDreamDataset(Dataset):
         example["instance_attention_mask"] = text_inputs.attention_mask
 
         return example
+
+    def save_preprocessed_previews(self, output_dir, count=4):
+        """保存模型实际看到的手部张量，供正式训练前检查双手是否完整。"""
+        if self.dataset != HAND_DATASET_NAME or not output_dir or count <= 0:
+            return []
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        saved = []
+        for index in range(min(count, len(self.instance_images_path))):
+            source_path = Path(self.instance_images_path[index])
+            with Image.open(source_path) as image:
+                image = exif_transpose(image).convert("RGB")
+                tensor = self.image_transforms(image)
+            preview = transforms.ToPILImage()((tensor * 0.5 + 0.5).clamp(0, 1))
+            target = output_path / f"{index:02d}_{source_path.stem}_preview.png"
+            preview.save(target)
+            saved.append(str(target))
+        return saved
 
 
 def collate_fn(examples):
@@ -630,6 +816,8 @@ def main(args):
     )
 
     # Dataset and DataLoaders creation:
+    # 手部训练在读取图片前强制校验阶段 A manifest；面部数据返回 None，不改变原流程。
+    hand_manifest_info = validate_hand_manifest(args)
     train_dataset = DataDreamDataset(
         fewshot_data_dir=args.fewshot_data_dir,
         tokenizer=tokenizer,
@@ -641,6 +829,19 @@ def main(args):
         n_template=args.n_template,
         target_class_idx=args.target_class_idx,
     )
+
+    preview_paths = []
+    if accelerator.is_main_process and args.dataset == HAND_DATASET_NAME:
+        preview_paths = train_dataset.save_preprocessed_previews(
+            output_dir=args.preview_preprocessed_dir,
+            count=args.preview_preprocessed_count,
+        )
+        write_hand_training_metadata(
+            args=args,
+            train_dataset=train_dataset,
+            manifest_info=hand_manifest_info,
+            preview_paths=preview_paths,
+        )
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,

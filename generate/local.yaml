@@ -6,6 +6,9 @@
 
 save_dir: /root/autodl-tmp/datadream_outputs/generated_images
 datadream_dir: /root/autodl-tmp/datadream_outputs/models
+# 手部路径与面部默认目录隔离；run_hand_generate.sh 会显式传入这两个值。
+hand_save_dir: /root/autodl-tmp/runs/hand_generated/fold_0/seed22
+hand_datadream_dir: /root/autodl-tmp/runs/hand_sd_lora/fold_0/seed22
 model_dir: 
     sd2.1: /root/autodl-tmp/models/AI-ModelScope/stable-diffusion-2-1
     sdxl: /root/autodl-tmp/models/stabilityai/stable-diffusion-xl-base-1.0

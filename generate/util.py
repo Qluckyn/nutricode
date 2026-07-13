@@ -462,7 +462,56 @@ SUBSET_NAMES = {
     'my_dataset_binary': [
         'normal_face',
         'malnourished_face',
-    ]
+    ],
+    # 手部生成实验独立四类，顺序与 sd_lora 阶段 B 完全一致。
+    'hand_nutrition': [
+        'malnourished_hand_pose01',
+        'malnourished_hand_pose02',
+        'normal_hand_pose01',
+        'normal_hand_pose02',
+    ],
+}
+
+# 手部生成 prompt = 固定拍摄协议 + 姿势约束 + 营养表型。
+# 两类使用相同背景和摄影条件，降低分类器学习背景捷径的风险。
+# 使用 stage_c_smoke_v2 已验证的详细版 prompt。
+HAND_GENERATION_PROMPTS = {
+    'malnourished_hand_pose01': (
+        'top-down clinical photograph of exactly two complete thin and bony hands with '
+        'reduced soft tissue, both forming closed fists, hand backs facing the camera, '
+        'inner thumbs facing each other, wrists visible, symmetric on white paper over a '
+        'wooden table, neutral lighting, realistic anatomy and skin'
+    ),
+    'malnourished_hand_pose02': (
+        'top-down clinical photograph of exactly two complete thin and bony hands with '
+        'reduced soft tissue and reduced first web-space fullness, lying flat with hand '
+        'backs facing the camera, ten fingers extended and separated, thumbs touching at '
+        'the center, wrists visible, symmetric on white paper over a wooden table, neutral '
+        'lighting, realistic anatomy'
+    ),
+    'normal_hand_pose01': (
+        'top-down clinical photograph of exactly two complete healthy hands with normal '
+        'soft-tissue fullness, both forming closed fists, hand backs facing the camera, '
+        'inner thumbs facing each other, wrists visible, symmetric on white paper over a '
+        'wooden table, neutral lighting, realistic anatomy and skin'
+    ),
+    'normal_hand_pose02': (
+        'top-down clinical photograph of exactly two complete healthy hands with preserved '
+        'first web-space fullness, lying flat with hand backs facing the camera, ten fingers '
+        'extended and separated, thumbs touching at the center, wrists visible, symmetric '
+        'on white paper over a wooden table, neutral lighting, realistic anatomy'
+    ),
+}
+
+HAND_COMMON_NEGATIVE_PROMPT = (
+    'single hand, three hands, extra fingers, missing fingers, fused fingers, malformed '
+    'hands, deformed anatomy, cropped hands, cropped wrists, palms facing camera, side view, '
+    'overlapping hands, jewelry, gloves, bandages, text, watermark, illustration, CGI, blurry'
+)
+
+HAND_POSE_NEGATIVE_PROMPTS = {
+    'pose01': HAND_COMMON_NEGATIVE_PROMPT + ', open hands, extended fingers, spread fingers',
+    'pose02': HAND_COMMON_NEGATIVE_PROMPT + ', closed fists, clenched fists, curled fingers',
 }
 
 TEMPLATES_SMALL = [
@@ -494,4 +543,3 @@ TEMPLATES_SMALL = [
     "a {}photo of a cool {}",
     "a {}photo of a small {}",
 ]
-

@@ -4,6 +4,8 @@ import os
 import pickle
 import random
 import string
+from datetime import datetime, timezone
+from pathlib import Path
 from os.path import join as ospj
 from typing import Tuple
 
@@ -22,7 +24,29 @@ from util import (
     set_seed,
     SUBSET_NAMES,
     TEMPLATES_SMALL,
+    HAND_GENERATION_PROMPTS,
+    HAND_POSE_NEGATIVE_PROMPTS,
 )
+
+
+HAND_DATASET_NAME = "hand_nutrition"
+
+
+def validate_hand_prompt_lengths(pipe, classname):
+    """拒绝超过 CLIP 上限的手部 prompt，避免关键姿势或场景描述被静默截断。"""
+    pose = "pose01" if classname.endswith("pose01") else "pose02"
+    prompt_map = {
+        "positive": HAND_GENERATION_PROMPTS[classname],
+        "negative": HAND_POSE_NEGATIVE_PROMPTS[pose],
+    }
+    max_length = pipe.tokenizer.model_max_length
+    for prompt_type, prompt in prompt_map.items():
+        token_count = len(pipe.tokenizer(prompt, truncation=False).input_ids)
+        if token_count > max_length:
+            raise ValueError(
+                f"{classname} {prompt_type} prompt 超过 CLIP 上限："
+                f"{token_count}>{max_length}"
+            )
 
 def get_pipe(model_type, model_dir, device, is_tqdm):
     # CUDA_VISIBLE_DEVICES issue
@@ -102,6 +126,12 @@ def update_pipe(
     mid = f"shot{n_shot}_{fewshot_seed}_tpl{n_template}"
     if not datadream_train_text_encoder:
         mid += "_notextlora"
+    # 原代码：
+    # fpath = ospj(
+    #     datadream_dir, dataset, mid,
+    #     f"lr{datadream_lr}_epoch{datadream_epoch}", classname,
+    # )
+    # 保留原目录规则，并在加载前显式校验，避免四类手部权重错配后静默生成。
     fpath = ospj(
         datadream_dir,
         dataset,
@@ -109,8 +139,14 @@ def update_pipe(
         f"lr{datadream_lr}_epoch{datadream_epoch}",
         classname,
     )
+    weight_path = ospj(fpath, "pytorch_lora_weights.safetensors")
+    if not os.path.isfile(weight_path):
+        raise FileNotFoundError(f"Missing LoRA weight: {weight_path}")
     pipe.load_lora_weights(fpath, weight_name="pytorch_lora_weights.safetensors")
-
+    # 仅附加追溯信息，不改变 Diffusers pipeline 的推理行为。
+    pipe._datadream_lora_path = weight_path
+    if dataset == HAND_DATASET_NAME:
+        validate_hand_prompt_lengths(pipe, classname)
 
     return pipe
 
@@ -130,6 +166,7 @@ def get_dataset_name_for_template(dataset):
         "caltech101": "",
         "my_dataset": "human ",
         "my_dataset_binary": "human ",
+        "hand_nutrition": "",
     }[dataset]
     return dataset_name
 
@@ -186,6 +223,9 @@ class GenerateImage:
         n_shot,
         n_template,
         dataset,
+        seed=42,
+        sd_version=None,
+        model_dir=None,
     ):
         self.pipe = pipe
         self.device = device
@@ -199,6 +239,10 @@ class GenerateImage:
         self.n_shot = n_shot
         self.n_template = n_template
         self.dataset = dataset
+        self.seed = int(seed)
+        self.sd_version = sd_version
+        self.model_dir = model_dir
+        self.hand_prompts = HAND_GENERATION_PROMPTS
         self.dataset_name = get_dataset_name_for_template(dataset)
 
         self.resize_fn = tv.transforms.Resize(
@@ -211,16 +255,61 @@ class GenerateImage:
         # for datadream
         self.pipe = pipe
 
-    def save_data(self, outputs, save_dir, count):
+    def save_data(
+        self,
+        outputs,
+        save_dir,
+        count,
+        prompts=None,
+        seeds=None,
+        classname=None,
+        negative_prompt=None,
+    ):
         images = outputs.images
-        for image in images:
+        metadata_path = Path(save_dir) / "metadata.jsonl"
+        for batch_index, image in enumerate(images):
             fpath = ospj(save_dir, f"{count}.png")
+            if self.dataset == HAND_DATASET_NAME and os.path.exists(fpath):
+                raise FileExistsError(
+                    f"手部生成拒绝覆盖已有图片，请调整 count_start 或输出目录：{fpath}"
+                )
             image = image.resize((512, 512))
             image.save(fpath)
+
+            if self.dataset == HAND_DATASET_NAME:
+                pose = "pose01" if classname.endswith("pose01") else "pose02"
+                nutrition_status = (
+                    "malnourished" if classname.startswith("malnourished") else "normal"
+                )
+                record = {
+                    "schema_version": 1,
+                    "created_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "output_path": str(Path(fpath).resolve()),
+                    "output_index": count,
+                    "dataset": self.dataset,
+                    "class_name": classname,
+                    "nutrition_status": nutrition_status,
+                    "pose": pose,
+                    "prompt": prompts[batch_index],
+                    "negative_prompt": negative_prompt,
+                    "seed": int(seeds[batch_index]),
+                    "lora_weight_path": getattr(
+                        self.pipe, "_datadream_lora_path", None
+                    ),
+                    "sd_version": self.sd_version,
+                    "model_dir": self.model_dir,
+                    "guidance_scale": self.guidance_scale,
+                    "num_inference_steps": self.num_inference_steps,
+                    "lora_scale": 1 if self.mode == "datadream" else 0,
+                    "width": 512,
+                    "height": 512,
+                }
+                with metadata_path.open("a", encoding="utf-8") as file_obj:
+                    file_obj.write(json.dumps(record, ensure_ascii=False) + "\n")
             count += 1
         return count
 
-    def run_pipe(self, prompts):
+    def run_pipe(self, prompts, seeds=None, negative_prompt=None):
         if isinstance(prompts, list):
             prompt_embeds = None
         elif isinstance(prompts, torch.Tensor):
@@ -229,13 +318,20 @@ class GenerateImage:
 
         lora_scale = 1 if self.mode == "datadream" else 0
 
-        outputs = self.pipe(
+        pipe_kwargs = dict(
             prompt=prompts,
             prompt_embeds=prompt_embeds,
             guidance_scale=self.guidance_scale,
             num_inference_steps=self.num_inference_steps,
             cross_attention_kwargs={"scale": lora_scale},
         )
+        if self.dataset == HAND_DATASET_NAME:
+            pipe_kwargs["negative_prompt"] = [negative_prompt] * len(prompts)
+            pipe_kwargs["generator"] = [
+                torch.Generator(device=self.device).manual_seed(int(seed))
+                for seed in seeds
+            ]
+        outputs = self.pipe(**pipe_kwargs)
         return outputs
 
     def set_save_dir(self, classname, prompts):
@@ -244,7 +340,7 @@ class GenerateImage:
         make_dirs(save_dir)
         if isinstance(prompts, list):
             with open(ospj(save_dir, "prompts.json"), "w") as f:
-                json.dump(prompts, f, indent=4)
+                json.dump(prompts, f, indent=4, ensure_ascii=False)
 
         return save_dir
 
@@ -260,16 +356,43 @@ class GenerateImage:
             prompts = prompts[self.count_start :]
 
             for prompts_batch in batch_iteration(prompts, self.bs):
+                if self.dataset == HAND_DATASET_NAME:
+                    seeds_batch = list(
+                        range(self.seed + count, self.seed + count + len(prompts_batch))
+                    )
+                    pose = "pose01" if classname.endswith("pose01") else "pose02"
+                    negative_prompt = HAND_POSE_NEGATIVE_PROMPTS[pose]
+                else:
+                    # 原面部流程继续依赖类级 set_seed，不额外注入 generator 或 negative prompt。
+                    seeds_batch = None
+                    negative_prompt = None
                 # generate images
-                outputs = self.run_pipe(prompts_batch)
+                outputs = self.run_pipe(
+                    prompts_batch,
+                    seeds=seeds_batch,
+                    negative_prompt=negative_prompt,
+                )
 
                 # save
-                count = self.save_data(outputs, save_dir, count)
+                count = self.save_data(
+                    outputs,
+                    save_dir,
+                    count,
+                    prompts=prompts_batch,
+                    seeds=seeds_batch,
+                    classname=classname,
+                    negative_prompt=negative_prompt,
+                )
 
         return wrapper
 
     @decorator_batch_prompts
     def name_template_method(self, classname):
+        if self.dataset == HAND_DATASET_NAME:
+            # 手部只使用阶段 C 定义的固定临床 prompt，不套用面部/通用模板。
+            return [self.hand_prompts[classname]] * self.n_img_per_class
+
+        # 原始面部/通用模板生成逻辑完整保留。
         templates = TEMPLATES_SMALL[: self.n_template]
         n_repeat = self.n_img_per_class // len(templates) + 1
         prompts = [
@@ -353,6 +476,48 @@ def main(
     )
     print(save_dir)
 
+    if dataset == HAND_DATASET_NAME:
+        if mode != "datadream" or is_dataset_wise_model:
+            raise ValueError("手部阶段 C 仅支持逐类 DataDream LoRA 生成")
+        if datadream_train_text_encoder:
+            raise ValueError(
+                "阶段 B 权重为 notextlora，手部生成必须设置 "
+                "datadream_train_text_encoder=False"
+            )
+        selected_prompts = HAND_GENERATION_PROMPTS
+        if set(SUBSET_NAMES[dataset]) != set(selected_prompts):
+            raise ValueError("手部四类与生成 prompt 映射不一致")
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
+        run_config = {
+            "schema_version": 1,
+            "task": "hand_lora_image_generation",
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+            "dataset": dataset,
+            "classes": SUBSET_NAMES[dataset],
+            "seed_base": int(seed),
+            "sd_version": sd_version,
+            "model_dir": model_dir,
+            "datadream_dir": datadream_dir,
+            "n_shot": int(n_shot),
+            "fewshot_seed": fewshot_seed,
+            "n_template": int(n_template),
+            "datadream_lr": float(datadream_lr),
+            "datadream_epoch": int(datadream_epoch),
+            "guidance_scale": float(guidance_scale),
+            "num_inference_steps": int(num_inference_steps),
+            "n_img_per_class": int(n_img_per_class),
+            "count_start": int(count_start),
+            "batch_size": int(bs),
+            "split_idx": int(split_idx),
+            "n_set_split": int(n_set_split),
+            "positive_prompts": selected_prompts,
+            "negative_prompts": HAND_POSE_NEGATIVE_PROMPTS,
+        }
+        (Path(save_dir) / "generation_config.json").write_text(
+            json.dumps(run_config, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # load SD pipeline
@@ -390,6 +555,9 @@ def main(
         n_shot=n_shot,
         n_template=n_template,
         dataset=dataset,
+        seed=seed,
+        sd_version=sd_version,
+        model_dir=model_dir,
     )
 
     iters = SUBSET_NAMES[dataset]

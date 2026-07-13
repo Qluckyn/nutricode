@@ -56,6 +56,30 @@ def parse_args(input_args=None):
         "--fewshot_seed", type=str, default="seed0", help="best or seed{number}."
     )
     parser.add_argument("--target_class_idx", type=int2none, default=None)
+    parser.add_argument(
+        "--fewshot_data_dir_override",
+        type=str2none,
+        default=None,
+        help="手部等独立实验可直接覆盖 few-shot 根目录，设置后不再自动追加 fewshot_seed。",
+    )
+    parser.add_argument(
+        "--hand_dataset_manifest",
+        type=str2none,
+        default=None,
+        help="手部阶段A生成的 manifest.json，用于训练前核对数据来源和类别数量。",
+    )
+    parser.add_argument(
+        "--preview_preprocessed_dir",
+        type=str2none,
+        default=None,
+        help="可选：保存手部补边缩放后的预览图，供正式训练前人工检查。",
+    )
+    parser.add_argument(
+        "--preview_preprocessed_count",
+        type=int,
+        default=4,
+        help="每次训练最多保存的预处理预览图数量。",
+    )
     parser.add_argument("--is_tqdm", type=str2bool, default=True)
     parser.add_argument(
         "--pretrained_model_name_or_path",
@@ -374,7 +398,9 @@ def parse_args(input_args=None):
     if args.pretrained_model_name_or_path is None:
         args.pretrained_model_name_or_path = args_local["model_dir"]["sd2.1"]
     if args.n_template is None:
-        args_n_template = 1
+        # 原代码：args_n_template = 1
+        # 修正原变量未回写的问题；面部与手部在未指定时都保持使用 1 个模板。
+        args.n_template = 1
 
     mid1 = f"shot{args.n_shot}_{args.fewshot_seed}_tpl{args.n_template}"
     if not args.train_text_encoder:
@@ -397,10 +423,20 @@ def parse_args(input_args=None):
         mid2,
     )
 
-    args.fewshot_data_dir = ospj(
-        args_local["fewshot_data_dir"][args.dataset], 
-        args.fewshot_seed,
-    )
+    # 原代码：
+    # args.fewshot_data_dir = ospj(
+    #     args_local["fewshot_data_dir"][args.dataset],
+    #     args.fewshot_seed,
+    # )
+    # 手部四类目录直接位于 fold_0 下，不能自动追加 seed22/seed0；面部仍保留原拼接规则。
+    if args.fewshot_data_dir_override is not None:
+        args.fewshot_data_dir = args.fewshot_data_dir_override
+    elif args.dataset == "hand_nutrition":
+        args.fewshot_data_dir = args_local["fewshot_data_dir"][args.dataset]
+    else:
+        args.fewshot_data_dir = ospj(
+            args_local["fewshot_data_dir"][args.dataset],
+            args.fewshot_seed,
+        )
     return args
-
 

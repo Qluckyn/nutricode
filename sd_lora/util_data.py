@@ -444,12 +444,47 @@ SUBSET_NAMES = {
      'my_dataset_binary': [
          'normal_face',
          'malnourished_face',
-     ]
+     ],
+     # 手部生成实验与面部类别完全隔离，类别顺序需与手部专用训练脚本保持一致。
+     'hand_nutrition': [
+         'malnourished_hand_pose01',
+         'malnourished_hand_pose02',
+         'normal_hand_pose01',
+         'normal_hand_pose02',
+     ],
   #  'my_dataset': ['normal_front_face', 'normal_left_profile_face', 
  #   'normal_left_three-quarter_face', 'normal_right_profile_face', 'normal_right_three-quarter_face']
 #    'my_dataset': ['normal_front_face', 
  #    'normal_left_three-quarter_face',  'normal_right_three-quarter_face']
 #
+}
+
+# 手部 LoRA 使用固定的临床语义和姿势描述，不复用面部/通用物体模板。
+# pose01 为双手握拳；pose02 为双手平放展开且虎口可见。
+HAND_LORA_PROMPTS = {
+    'malnourished_hand_pose01': (
+        'a top-down clinical photograph of thin and bony hands with reduced '
+        'soft tissue, both hands forming closed fists, the backs of both hands '
+        'facing the camera, both wrists and both complete hands visible'
+    ),
+    'malnourished_hand_pose02': (
+        'a top-down clinical photograph of thin and bony hands with reduced '
+        'soft tissue and reduced fullness in the first web spaces between the '
+        'thumbs and index fingers, both hands lying flat, all fingers extended '
+        'and naturally spread, the backs of both hands facing the camera, both '
+        'wrists and both complete hands visible'
+    ),
+    'normal_hand_pose01': (
+        'a top-down clinical photograph of healthy hands with normal soft-tissue '
+        'fullness, both hands forming closed fists, the backs of both hands '
+        'facing the camera, both wrists and both complete hands visible'
+    ),
+    'normal_hand_pose02': (
+        'a top-down clinical photograph of healthy hands with preserved fullness '
+        'in the first web spaces between the thumbs and index fingers, both hands '
+        'lying flat, all fingers extended and naturally spread, the backs of both '
+        'hands facing the camera, both wrists and both complete hands visible'
+    ),
 }
 
 TEMPLATES_SMALL = [

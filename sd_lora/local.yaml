@@ -4,3 +4,5 @@ model_dir:
 fewshot_data_dir:
   my_dataset: /root/autodl-tmp/runs/cv/fold_4/real_train_groups
   my_dataset_binary: /root/autodl-tmp/datadream/data/my_dataset_binary
+  # 手部实验独立目录；正式运行优先由 run_hand_lora.sh 显式覆盖。
+  hand_nutrition: /root/autodl-tmp/data_hand/lora_train_audited/fold_0
