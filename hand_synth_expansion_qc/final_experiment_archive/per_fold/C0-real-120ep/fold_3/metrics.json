@@ -1,0 +1,100 @@
+{
+  "dataset": "hand_nutrition",
+  "positive_class_name": "malnourished_hand",
+  "hand_pose": "02",
+  "classification_threshold": 0.5,
+  "overall_accuracy_percent": 69.23076923076923,
+  "confusion_matrix": [
+    [
+      0,
+      3
+    ],
+    [
+      1,
+      9
+    ]
+  ],
+  "class_accuracies": [
+    {
+      "class": "malnourished_hand",
+      "accuracy": 0.0,
+      "correct": 0,
+      "total": 3
+    },
+    {
+      "class": "normal_hand",
+      "accuracy": 90.0,
+      "correct": 9,
+      "total": 10
+    }
+  ],
+  "image_level_metrics": {
+    "accuracy": 0.6923076923076923,
+    "balanced_accuracy": 0.45,
+    "roc_auc": 0.6,
+    "pr_auc": 0.3333333333333333,
+    "precision": 0.0,
+    "sensitivity": 0.0,
+    "specificity": 0.9,
+    "acc": 0.6923076923076923,
+    "auc": 0.6,
+    "f1": 0.0,
+    "sen": 0.0,
+    "spe": 0.9,
+    "mcc": -0.15811388300841897,
+    "threshold": 0.5,
+    "tp": 0,
+    "tn": 9,
+    "fp": 1,
+    "fn": 3
+  },
+  "pose_level_metrics": {
+    "pose_02": {
+      "accuracy": 0.6923076923076923,
+      "balanced_accuracy": 0.45,
+      "roc_auc": 0.6,
+      "pr_auc": 0.3333333333333333,
+      "precision": 0.0,
+      "sensitivity": 0.0,
+      "specificity": 0.9,
+      "acc": 0.6923076923076923,
+      "auc": 0.6,
+      "f1": 0.0,
+      "sen": 0.0,
+      "spe": 0.9,
+      "mcc": -0.15811388300841897,
+      "threshold": 0.5,
+      "tp": 0,
+      "tn": 9,
+      "fp": 1,
+      "fn": 3
+    }
+  },
+  "subject_level_metrics": {
+    "accuracy": 0.6923076923076923,
+    "balanced_accuracy": 0.45,
+    "roc_auc": 0.6,
+    "pr_auc": 0.3333333333333333,
+    "precision": 0.0,
+    "sensitivity": 0.0,
+    "specificity": 0.9,
+    "acc": 0.6923076923076923,
+    "auc": 0.6,
+    "f1": 0.0,
+    "sen": 0.0,
+    "spe": 0.9,
+    "mcc": -0.15811388300841897,
+    "threshold": 0.5,
+    "tp": 0,
+    "tn": 9,
+    "fp": 1,
+    "fn": 3
+  },
+  "pose_agreement": {
+    "applicable": false,
+    "complete_subject_pairs": 0,
+    "agreement_count": 0,
+    "disagreement_count": 0,
+    "agreement_rate": null
+  }
+}

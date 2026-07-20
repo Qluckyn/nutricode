@@ -73,7 +73,8 @@ check_min_version("0.26.0.dev0")
 logger = get_logger(__name__)
 
 
-HAND_DATASET_NAME = "hand_nutrition"
+# 旧四类手部实验和V2 pose02双类实验共用相同的安全预处理与清单审计。
+HAND_DATASET_NAMES = {"hand_nutrition", "hand_nutrition_pose02", "hand_nutrition_allpose"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 
 
@@ -108,10 +109,10 @@ def sha256_file(path):
 
 def validate_hand_manifest(args):
     """训练前核对阶段 A manifest 与四类目录，禁止误接面部或测试数据。"""
-    if args.dataset != HAND_DATASET_NAME:
+    if args.dataset not in HAND_DATASET_NAMES:
         return None
     if args.hand_dataset_manifest is None:
-        raise ValueError("hand_nutrition 训练必须显式指定 --hand_dataset_manifest")
+        raise ValueError("手部LoRA训练必须显式指定 --hand_dataset_manifest")
 
     manifest_path = Path(args.hand_dataset_manifest).resolve()
     if not manifest_path.is_file():
@@ -124,9 +125,9 @@ def validate_hand_manifest(args):
             "manifest 与 fewshot 根目录不一致："
             f"manifest_root={manifest_path.parent}, data_root={args.fewshot_data_dir}"
         )
-    expected_classes = set(SUBSET_NAMES[HAND_DATASET_NAME])
+    expected_classes = set(SUBSET_NAMES[args.dataset])
     if set(manifest.get("class_counts", {})) != expected_classes:
-        raise ValueError("manifest 四类定义与 hand_nutrition 不一致")
+        raise ValueError("manifest类别定义与当前手部数据集不一致")
     if any(int(manifest["class_counts"][name]) <= 0 for name in expected_classes):
         raise ValueError("manifest 中存在空的手部 LoRA 类别")
     if manifest.get("excluded_test_subject_ids") is None:
@@ -168,7 +169,7 @@ def validate_hand_manifest(args):
 
 def write_hand_training_metadata(args, train_dataset, manifest_info, preview_paths):
     """保存手部训练的完整配置和输入清单，面部流程不写入该文件。"""
-    if args.dataset != HAND_DATASET_NAME:
+    if args.dataset not in HAND_DATASET_NAMES:
         return
     class_name = (
         "dataset-wise"
@@ -305,6 +306,8 @@ class DataDreamDataset(Dataset):
             "my_dataset": "human ",
             "my_dataset_binary": "human ",
             "hand_nutrition": "",
+            "hand_nutrition_pose02": "",
+            "hand_nutrition_allpose": "",
         }[dataset]
         self.target_class_idx = target_class_idx
 
@@ -319,7 +322,7 @@ class DataDreamDataset(Dataset):
         ) = self.get_instance_data_list()
         self._length = self.num_instance_images
 
-        if self.dataset == HAND_DATASET_NAME:
+        if self.dataset in HAND_DATASET_NAMES:
             # 手部原图为横向双手构图：先补白为正方形，再整体缩放，禁止随机裁剪和翻转。
             self.image_transforms = transforms.Compose(
                 [
@@ -400,7 +403,7 @@ class DataDreamDataset(Dataset):
         instance_image = Image.open(self.instance_images_path[instance_idx])
         instance_image = exif_transpose(instance_image)
         instance_prompt = self.instance_prompts[instance_idx]
-        if self.dataset == HAND_DATASET_NAME:
+        if self.dataset in HAND_DATASET_NAMES:
             # 手部使用固定临床表型与姿势 prompt，不能把下划线类别名直接交给文本编码器。
             instance_prompt = HAND_LORA_PROMPTS[instance_prompt]
         else:
@@ -424,7 +427,7 @@ class DataDreamDataset(Dataset):
 
     def save_preprocessed_previews(self, output_dir, count=4):
         """保存模型实际看到的手部张量，供正式训练前检查双手是否完整。"""
-        if self.dataset != HAND_DATASET_NAME or not output_dir or count <= 0:
+        if self.dataset not in HAND_DATASET_NAMES or not output_dir or count <= 0:
             return []
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
@@ -831,7 +834,7 @@ def main(args):
     )
 
     preview_paths = []
-    if accelerator.is_main_process and args.dataset == HAND_DATASET_NAME:
+    if accelerator.is_main_process and args.dataset in HAND_DATASET_NAMES:
         preview_paths = train_dataset.save_preprocessed_previews(
             output_dir=args.preview_preprocessed_dir,
             count=args.preview_preprocessed_count,

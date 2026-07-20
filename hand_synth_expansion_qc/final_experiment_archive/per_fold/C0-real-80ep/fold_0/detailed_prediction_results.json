@@ -1,0 +1,615 @@
+{
+  "dataset": "hand_nutrition",
+  "checkpoint_path": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_0/c0_real_80ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/final_checkpoint.pth",
+  "positive_class_name": "malnourished_hand",
+  "hand_pose": "02",
+  "classification_threshold": 0.5,
+  "overall_accuracy": 61.53846153846154,
+  "confusion_matrix": [
+    [
+      2,
+      1
+    ],
+    [
+      4,
+      6
+    ]
+  ],
+  "class_accuracies": [
+    {
+      "class": "malnourished_hand",
+      "accuracy": 66.66666666666667,
+      "correct": 2,
+      "total": 3
+    },
+    {
+      "class": "normal_hand",
+      "accuracy": 60.0,
+      "correct": 6,
+      "total": 10
+    }
+  ],
+  "image_level_metrics": {
+    "accuracy": 0.6153846153846154,
+    "balanced_accuracy": 0.6333333333333333,
+    "roc_auc": 0.7,
+    "pr_auc": 0.3873015873015873,
+    "precision": 0.3333333333333333,
+    "sensitivity": 0.6666666666666666,
+    "specificity": 0.6,
+    "acc": 0.6153846153846154,
+    "auc": 0.7,
+    "f1": 0.4444444444444444,
+    "sen": 0.6666666666666666,
+    "spe": 0.6,
+    "mcc": 0.2253744679276044,
+    "threshold": 0.5,
+    "tp": 2,
+    "tn": 6,
+    "fp": 4,
+    "fn": 1
+  },
+  "pose_level_metrics": {
+    "pose_02": {
+      "accuracy": 0.6153846153846154,
+      "balanced_accuracy": 0.6333333333333333,
+      "roc_auc": 0.7,
+      "pr_auc": 0.3873015873015873,
+      "precision": 0.3333333333333333,
+      "sensitivity": 0.6666666666666666,
+      "specificity": 0.6,
+      "acc": 0.6153846153846154,
+      "auc": 0.7,
+      "f1": 0.4444444444444444,
+      "sen": 0.6666666666666666,
+      "spe": 0.6,
+      "mcc": 0.2253744679276044,
+      "threshold": 0.5,
+      "tp": 2,
+      "tn": 6,
+      "fp": 4,
+      "fn": 1
+    }
+  },
+  "pose_counts": {
+    "pose_02": 13
+  },
+  "subject_level_metrics": {
+    "accuracy": 0.6153846153846154,
+    "balanced_accuracy": 0.6333333333333333,
+    "roc_auc": 0.7,
+    "pr_auc": 0.3873015873015873,
+    "precision": 0.3333333333333333,
+    "sensitivity": 0.6666666666666666,
+    "specificity": 0.6,
+    "acc": 0.6153846153846154,
+    "auc": 0.7,
+    "f1": 0.4444444444444444,
+    "sen": 0.6666666666666666,
+    "spe": 0.6,
+    "mcc": 0.2253744679276044,
+    "threshold": 0.5,
+    "tp": 2,
+    "tn": 6,
+    "fp": 4,
+    "fn": 1
+  },
+  "pose_agreement": {
+    "applicable": false,
+    "complete_subject_pairs": 0,
+    "agreement_count": 0,
+    "disagreement_count": 0,
+    "agreement_rate": null
+  },
+  "subject_results": [
+    {
+      "subject_id": "01",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 1,
+      "predicted_class_index": 1,
+      "predicted_class_name": "normal_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 0,
+      "malnourished_probability": 0.46151256561279297,
+      "pose_probabilities": {
+        "pose_02": 0.46151256561279297
+      },
+      "pose_predictions": {
+        "pose_02": 0
+      },
+      "poses_agree": null
+    },
+    {
+      "subject_id": "04",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 1,
+      "predicted_class_index": 1,
+      "predicted_class_name": "normal_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 0,
+      "malnourished_probability": 0.30464741587638855,
+      "pose_probabilities": {
+        "pose_02": 0.30464741587638855
+      },
+      "pose_predictions": {
+        "pose_02": 0
+      },
+      "poses_agree": null
+    },
+    {
+      "subject_id": "16",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 1,
+      "predicted_class_index": 1,
+      "predicted_class_name": "normal_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 0,
+      "malnourished_probability": 0.33822309970855713,
+      "pose_probabilities": {
+        "pose_02": 0.33822309970855713
+      },
+      "pose_predictions": {
+        "pose_02": 0
+      },
+      "poses_agree": null
+    },
+    {
+      "subject_id": "33",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 0,
+      "predicted_class_index": 0,
+      "predicted_class_name": "malnourished_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 1,
+      "malnourished_probability": 0.7772859930992126,
+      "pose_probabilities": {
+        "pose_02": 0.7772859930992126
+      },
+      "pose_predictions": {
+        "pose_02": 1
+      },
+      "poses_agree": null
+    },
+    {
+      "subject_id": "46",
+      "true_label": 0,
+      "true_class_name": "malnourished_hand",
+      "predicted_label": 0,
+      "predicted_class_index": 0,
+      "predicted_class_name": "malnourished_hand",
+      "positive_true_label": 1,
+      "positive_pred_label": 1,
+      "malnourished_probability": 0.578003466129303,
+      "pose_probabilities": {
+        "pose_02": 0.578003466129303
+      },
+      "pose_predictions": {
+        "pose_02": 1
+      },
+      "poses_agree": null
+    },
+    {
+      "subject_id": "55",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 1,
+      "predicted_class_index": 1,
+      "predicted_class_name": "normal_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 0,
+      "malnourished_probability": 0.3285866677761078,
+      "pose_probabilities": {
+        "pose_02": 0.3285866677761078
+      },
+      "pose_predictions": {
+        "pose_02": 0
+      },
+      "poses_agree": null
+    },
+    {
+      "subject_id": "66",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 1,
+      "predicted_class_index": 1,
+      "predicted_class_name": "normal_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 0,
+      "malnourished_probability": 0.28833264112472534,
+      "pose_probabilities": {
+        "pose_02": 0.28833264112472534
+      },
+      "pose_predictions": {
+        "pose_02": 0
+      },
+      "poses_agree": null
+    },
+    {
+      "subject_id": "85",
+      "true_label": 0,
+      "true_class_name": "malnourished_hand",
+      "predicted_label": 0,
+      "predicted_class_index": 0,
+      "predicted_class_name": "malnourished_hand",
+      "positive_true_label": 1,
+      "positive_pred_label": 1,
+      "malnourished_probability": 0.6882433295249939,
+      "pose_probabilities": {
+        "pose_02": 0.6882433295249939
+      },
+      "pose_predictions": {
+        "pose_02": 1
+      },
+      "poses_agree": null
+    },
+    {
+      "subject_id": "87",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 0,
+      "predicted_class_index": 0,
+      "predicted_class_name": "malnourished_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 1,
+      "malnourished_probability": 0.6562522053718567,
+      "pose_probabilities": {
+        "pose_02": 0.6562522053718567
+      },
+      "pose_predictions": {
+        "pose_02": 1
+      },
+      "poses_agree": null
+    },
+    {
+      "subject_id": "89",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 0,
+      "predicted_class_index": 0,
+      "predicted_class_name": "malnourished_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 1,
+      "malnourished_probability": 0.512108325958252,
+      "pose_probabilities": {
+        "pose_02": 0.512108325958252
+      },
+      "pose_predictions": {
+        "pose_02": 1
+      },
+      "poses_agree": null
+    },
+    {
+      "subject_id": "93",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 0,
+      "predicted_class_index": 0,
+      "predicted_class_name": "malnourished_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 1,
+      "malnourished_probability": 0.819959282875061,
+      "pose_probabilities": {
+        "pose_02": 0.819959282875061
+      },
+      "pose_predictions": {
+        "pose_02": 1
+      },
+      "poses_agree": null
+    },
+    {
+      "subject_id": "95",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 1,
+      "predicted_class_index": 1,
+      "predicted_class_name": "normal_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 0,
+      "malnourished_probability": 0.37602683901786804,
+      "pose_probabilities": {
+        "pose_02": 0.37602683901786804
+      },
+      "pose_predictions": {
+        "pose_02": 0
+      },
+      "poses_agree": null
+    },
+    {
+      "subject_id": "96",
+      "true_label": 0,
+      "true_class_name": "malnourished_hand",
+      "predicted_label": 1,
+      "predicted_class_index": 1,
+      "predicted_class_name": "normal_hand",
+      "positive_true_label": 1,
+      "positive_pred_label": 0,
+      "malnourished_probability": 0.4775998592376709,
+      "pose_probabilities": {
+        "pose_02": 0.4775998592376709
+      },
+      "pose_predictions": {
+        "pose_02": 0
+      },
+      "poses_agree": null
+    }
+  ],
+  "all_samples": [
+    {
+      "sample_id": 0,
+      "image_path": "/root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22/fold_0/test/malnourished_hand/46_02.png",
+      "subject_id": "46",
+      "pose": "pose_02",
+      "true_label": 0,
+      "true_class_name": "malnourished_hand",
+      "predicted_label": 0,
+      "predicted_class_name": "malnourished_hand",
+      "is_correct": true,
+      "confidence": 57.8003466129303,
+      "positive_class_name": "malnourished_hand",
+      "positive_true_label": 1,
+      "positive_pred_label": 1,
+      "malnourished_probability": 0.578003466129303,
+      "normal_probability": 0.42199650406837463,
+      "all_class_probabilities": {
+        "malnourished_hand": 57.8003466129303,
+        "normal_hand": 42.19965040683746
+      }
+    },
+    {
+      "sample_id": 1,
+      "image_path": "/root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22/fold_0/test/malnourished_hand/85_02.png",
+      "subject_id": "85",
+      "pose": "pose_02",
+      "true_label": 0,
+      "true_class_name": "malnourished_hand",
+      "predicted_label": 0,
+      "predicted_class_name": "malnourished_hand",
+      "is_correct": true,
+      "confidence": 68.82433295249939,
+      "positive_class_name": "malnourished_hand",
+      "positive_true_label": 1,
+      "positive_pred_label": 1,
+      "malnourished_probability": 0.6882433295249939,
+      "normal_probability": 0.3117566406726837,
+      "all_class_probabilities": {
+        "malnourished_hand": 68.82433295249939,
+        "normal_hand": 31.17566406726837
+      }
+    },
+    {
+      "sample_id": 2,
+      "image_path": "/root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22/fold_0/test/malnourished_hand/96_02.png",
+      "subject_id": "96",
+      "pose": "pose_02",
+      "true_label": 0,
+      "true_class_name": "malnourished_hand",
+      "predicted_label": 1,
+      "predicted_class_name": "normal_hand",
+      "is_correct": false,
+      "confidence": 52.24002003669739,
+      "positive_class_name": "malnourished_hand",
+      "positive_true_label": 1,
+      "positive_pred_label": 0,
+      "malnourished_probability": 0.4775998592376709,
+      "normal_probability": 0.5224002003669739,
+      "all_class_probabilities": {
+        "malnourished_hand": 47.75998592376709,
+        "normal_hand": 52.24002003669739
+      }
+    },
+    {
+      "sample_id": 3,
+      "image_path": "/root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22/fold_0/test/normal_hand/01_02.png",
+      "subject_id": "01",
+      "pose": "pose_02",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 1,
+      "predicted_class_name": "normal_hand",
+      "is_correct": true,
+      "confidence": 53.8487434387207,
+      "positive_class_name": "malnourished_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 0,
+      "malnourished_probability": 0.46151256561279297,
+      "normal_probability": 0.538487434387207,
+      "all_class_probabilities": {
+        "malnourished_hand": 46.1512565612793,
+        "normal_hand": 53.8487434387207
+      }
+    },
+    {
+      "sample_id": 4,
+      "image_path": "/root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22/fold_0/test/normal_hand/04_02.png",
+      "subject_id": "04",
+      "pose": "pose_02",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 1,
+      "predicted_class_name": "normal_hand",
+      "is_correct": true,
+      "confidence": 69.5352554321289,
+      "positive_class_name": "malnourished_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 0,
+      "malnourished_probability": 0.30464741587638855,
+      "normal_probability": 0.6953525543212891,
+      "all_class_probabilities": {
+        "malnourished_hand": 30.464741587638855,
+        "normal_hand": 69.5352554321289
+      }
+    },
+    {
+      "sample_id": 5,
+      "image_path": "/root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22/fold_0/test/normal_hand/16_02.png",
+      "subject_id": "16",
+      "pose": "pose_02",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 1,
+      "predicted_class_name": "normal_hand",
+      "is_correct": true,
+      "confidence": 66.17768406867981,
+      "positive_class_name": "malnourished_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 0,
+      "malnourished_probability": 0.33822309970855713,
+      "normal_probability": 0.6617768406867981,
+      "all_class_probabilities": {
+        "malnourished_hand": 33.82230997085571,
+        "normal_hand": 66.17768406867981
+      }
+    },
+    {
+      "sample_id": 6,
+      "image_path": "/root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22/fold_0/test/normal_hand/33_02.png",
+      "subject_id": "33",
+      "pose": "pose_02",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 0,
+      "predicted_class_name": "malnourished_hand",
+      "is_correct": false,
+      "confidence": 77.72859930992126,
+      "positive_class_name": "malnourished_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 1,
+      "malnourished_probability": 0.7772859930992126,
+      "normal_probability": 0.22271400690078735,
+      "all_class_probabilities": {
+        "malnourished_hand": 77.72859930992126,
+        "normal_hand": 22.271400690078735
+      }
+    },
+    {
+      "sample_id": 7,
+      "image_path": "/root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22/fold_0/test/normal_hand/55_02.png",
+      "subject_id": "55",
+      "pose": "pose_02",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 1,
+      "predicted_class_name": "normal_hand",
+      "is_correct": true,
+      "confidence": 67.14133620262146,
+      "positive_class_name": "malnourished_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 0,
+      "malnourished_probability": 0.3285866677761078,
+      "normal_probability": 0.6714133620262146,
+      "all_class_probabilities": {
+        "malnourished_hand": 32.85866677761078,
+        "normal_hand": 67.14133620262146
+      }
+    },
+    {
+      "sample_id": 8,
+      "image_path": "/root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22/fold_0/test/normal_hand/66_02.png",
+      "subject_id": "66",
+      "pose": "pose_02",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 1,
+      "predicted_class_name": "normal_hand",
+      "is_correct": true,
+      "confidence": 71.16673588752747,
+      "positive_class_name": "malnourished_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 0,
+      "malnourished_probability": 0.28833264112472534,
+      "normal_probability": 0.7116673588752747,
+      "all_class_probabilities": {
+        "malnourished_hand": 28.833264112472534,
+        "normal_hand": 71.16673588752747
+      }
+    },
+    {
+      "sample_id": 9,
+      "image_path": "/root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22/fold_0/test/normal_hand/87_02.png",
+      "subject_id": "87",
+      "pose": "pose_02",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 0,
+      "predicted_class_name": "malnourished_hand",
+      "is_correct": false,
+      "confidence": 65.62522053718567,
+      "positive_class_name": "malnourished_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 1,
+      "malnourished_probability": 0.6562522053718567,
+      "normal_probability": 0.3437477946281433,
+      "all_class_probabilities": {
+        "malnourished_hand": 65.62522053718567,
+        "normal_hand": 34.37477946281433
+      }
+    },
+    {
+      "sample_id": 10,
+      "image_path": "/root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22/fold_0/test/normal_hand/89_02.png",
+      "subject_id": "89",
+      "pose": "pose_02",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 0,
+      "predicted_class_name": "malnourished_hand",
+      "is_correct": false,
+      "confidence": 51.210832595825195,
+      "positive_class_name": "malnourished_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 1,
+      "malnourished_probability": 0.512108325958252,
+      "normal_probability": 0.48789167404174805,
+      "all_class_probabilities": {
+        "malnourished_hand": 51.210832595825195,
+        "normal_hand": 48.789167404174805
+      }
+    },
+    {
+      "sample_id": 11,
+      "image_path": "/root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22/fold_0/test/normal_hand/93_02.png",
+      "subject_id": "93",
+      "pose": "pose_02",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 0,
+      "predicted_class_name": "malnourished_hand",
+      "is_correct": false,
+      "confidence": 81.9959282875061,
+      "positive_class_name": "malnourished_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 1,
+      "malnourished_probability": 0.819959282875061,
+      "normal_probability": 0.18004079163074493,
+      "all_class_probabilities": {
+        "malnourished_hand": 81.9959282875061,
+        "normal_hand": 18.004079163074493
+      }
+    },
+    {
+      "sample_id": 12,
+      "image_path": "/root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22/fold_0/test/normal_hand/95_02.png",
+      "subject_id": "95",
+      "pose": "pose_02",
+      "true_label": 1,
+      "true_class_name": "normal_hand",
+      "predicted_label": 1,
+      "predicted_class_name": "normal_hand",
+      "is_correct": true,
+      "confidence": 62.397319078445435,
+      "positive_class_name": "malnourished_hand",
+      "positive_true_label": 0,
+      "positive_pred_label": 0,
+      "malnourished_probability": 0.37602683901786804,
+      "normal_probability": 0.6239731907844543,
+      "all_class_probabilities": {
+        "malnourished_hand": 37.602683901786804,
+        "normal_hand": 62.397319078445435
+      }
+    }
+  ]
+}

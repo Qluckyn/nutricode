@@ -1,0 +1,100 @@
+{
+  "dataset": "hand_nutrition",
+  "positive_class_name": "malnourished_hand",
+  "hand_pose": "02",
+  "classification_threshold": 0.5,
+  "overall_accuracy_percent": 78.57142857142857,
+  "confusion_matrix": [
+    [
+      2,
+      1
+    ],
+    [
+      2,
+      9
+    ]
+  ],
+  "class_accuracies": [
+    {
+      "class": "malnourished_hand",
+      "accuracy": 66.66666666666667,
+      "correct": 2,
+      "total": 3
+    },
+    {
+      "class": "normal_hand",
+      "accuracy": 81.81818181818181,
+      "correct": 9,
+      "total": 11
+    }
+  ],
+  "image_level_metrics": {
+    "accuracy": 0.7857142857142857,
+    "balanced_accuracy": 0.7424242424242424,
+    "roc_auc": 0.7272727272727273,
+    "pr_auc": 0.75,
+    "precision": 0.5,
+    "sensitivity": 0.6666666666666666,
+    "specificity": 0.8181818181818182,
+    "acc": 0.7857142857142857,
+    "auc": 0.7272727272727273,
+    "f1": 0.5714285714285715,
+    "sen": 0.6666666666666666,
+    "spe": 0.8181818181818182,
+    "mcc": 0.4403855060505443,
+    "threshold": 0.5,
+    "tp": 2,
+    "tn": 9,
+    "fp": 2,
+    "fn": 1
+  },
+  "pose_level_metrics": {
+    "pose_02": {
+      "accuracy": 0.7857142857142857,
+      "balanced_accuracy": 0.7424242424242424,
+      "roc_auc": 0.7272727272727273,
+      "pr_auc": 0.75,
+      "precision": 0.5,
+      "sensitivity": 0.6666666666666666,
+      "specificity": 0.8181818181818182,
+      "acc": 0.7857142857142857,
+      "auc": 0.7272727272727273,
+      "f1": 0.5714285714285715,
+      "sen": 0.6666666666666666,
+      "spe": 0.8181818181818182,
+      "mcc": 0.4403855060505443,
+      "threshold": 0.5,
+      "tp": 2,
+      "tn": 9,
+      "fp": 2,
+      "fn": 1
+    }
+  },
+  "subject_level_metrics": {
+    "accuracy": 0.7857142857142857,
+    "balanced_accuracy": 0.7424242424242424,
+    "roc_auc": 0.7272727272727273,
+    "pr_auc": 0.75,
+    "precision": 0.5,
+    "sensitivity": 0.6666666666666666,
+    "specificity": 0.8181818181818182,
+    "acc": 0.7857142857142857,
+    "auc": 0.7272727272727273,
+    "f1": 0.5714285714285715,
+    "sen": 0.6666666666666666,
+    "spe": 0.8181818181818182,
+    "mcc": 0.4403855060505443,
+    "threshold": 0.5,
+    "tp": 2,
+    "tn": 9,
+    "fp": 2,
+    "fn": 1
+  },
+  "pose_agreement": {
+    "applicable": false,
+    "complete_subject_pairs": 0,
+    "agreement_count": 0,
+    "disagreement_count": 0,
+    "agreement_rate": null
+  }
+}

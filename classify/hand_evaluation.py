@@ -71,9 +71,9 @@ def _collect_predictions(model, data_loader, device):
     model.eval()
     with torch.no_grad():
         for image, label in data_loader:
+            output = model(image.to(device, non_blocking=True))
             image = image.to(device, non_blocking=True)
             label = label.to(device, non_blocking=True)
-            output = model(image)
             if isinstance(output, tuple):
                 output = output[0]
             probs = torch.softmax(output, dim=1)

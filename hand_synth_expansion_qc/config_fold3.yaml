@@ -1,0 +1,57 @@
+# 本配置只描述fold_0快速验证；所有路径均与旧实验输出隔离。
+stage: HAND-SYNTH-EXPANSION-QC-POSE02-QUICK-V1
+fold: 3
+classification_seed: 22
+
+data:
+  root: /root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22
+  split_manifest: /root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22/split.json
+  classes: [malnourished_hand, normal_hand]
+  # 本轮实验从数据准备到测试均只使用pose02；pose01文件一律不进入任何清单。
+  required_poses: ['02']
+
+output:
+  root: /root/autodl-tmp/runs/hand_synth_expansion_qc/fold_3_pose02
+
+models:
+  base_model: /root/autodl-tmp/models/AI-ModelScope/stable-diffusion-2-1
+  controlnet_weight: /root/autodl-tmp/models/hand_synthesis_v2/controlnet_sd21_openpose/control_v11p_sd21_openposev2.safetensors
+  controlnet_config: /root/autodl-tmp/models/hand_synthesis_v2/controlnet_sd21_openpose/control_v11p_sd21_openposev2.yaml
+  hand_landmarker: /root/autodl-tmp/models/mediapipe/hand_landmarker.task
+  foundhand_root: /root/autodl-tmp/FoundHand
+  foundhand_weight: /root/autodl-tmp/FoundHand/weights/DINO_EMA_11M_b50_lr1e-5_epoch6_step320k.ckpt
+  foundhand_vae: /root/autodl-tmp/FoundHand/weights/vae-ft-mse-840000-ema-pruned.ckpt
+  foundhand_sam: /root/autodl-tmp/FoundHand/weights/sam_vit_h_4b8939.pth
+  dinov2: /root/autodl-tmp/models/hand_synthesis_v2/dinov2_small
+
+conditions:
+  # 本实验从fold_0训练图重新提取关键点和掩膜；绝不复用旧实验条件清单。
+  manifest: /root/autodl-tmp/runs/hand_synth_expansion_qc/fold_3_pose02/conditions/final/condition_manifest.jsonl
+  minimum_approved_per_pose: 12
+
+lora:
+  dataset: hand_nutrition_pose02
+  normal_subject_selection_seed: 22000
+  subjects_per_class: 12
+  epochs: 40
+  batch_size: 2
+  gradient_accumulation_steps: 4
+  learning_rate: 1.0e-4
+  rank: 16
+  resolution: 512
+
+generation:
+  candidate_count_per_class_pose: 3000
+  selected_count_per_class_pose: 1500
+  resolution: 512
+  inference_steps: 30
+  guidance_scale: 3.5
+  controlnet_scale: 0.8
+  denoising_strength: 0.15
+
+classification:
+  epochs: 40
+  batch_size: 8
+  real_images_per_epoch: 24
+  synthetic_images_per_epoch: 72
+  synthetic_to_real_ratio: 3

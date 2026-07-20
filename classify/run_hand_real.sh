@@ -103,10 +103,11 @@ fi
 case "${EXPERIMENT_MODE}" in
     zeroshot)
         # 真正的zero-shot：关闭两侧LoRA，eval_only会在创建优化器前返回。
+        # --is_lora_text=True？？
         MODE_ARGS=(
             --eval_only=True
             --is_lora_image=False
-            --is_lora_text=False
+            --is_lora_text=True
             --is_hand_subject_balanced=False
             --select_best_on_test=False
         )
@@ -117,7 +118,7 @@ case "${EXPERIMENT_MODE}" in
         MODE_ARGS=(
             --eval_only=False
             --is_lora_image=True
-            --is_lora_text=False
+            --is_lora_text=True
             --is_hand_subject_balanced=True
             --select_best_on_test=False
         )
@@ -138,7 +139,7 @@ CUDA_VISIBLE_DEVICES="${GPU}" WANDB_MODE=disabled "${PYTHON_BIN}" main.py \
     --is_synth_train=False \
     --is_pooled_fewshot=False \
     --is_lora_image=True \
-    --is_lora_text=False \
+    --is_lora_text=True \
     --use_roi_aux_head=False \
     --is_mix_aug=False \
     --use_hand_transforms=True \

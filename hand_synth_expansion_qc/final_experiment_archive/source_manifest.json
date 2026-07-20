@@ -1,0 +1,79 @@
+{
+  "C0-real-epoch": {
+    "fold_0": "/root/autodl-tmp/runs/hand_pose01_pose02_fold0/fold0_c0_prompt/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_1": "/root/autodl-tmp/runs/hand_pose01_pose02_5fold_v4pilot/fold1_c0/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_2": "/root/autodl-tmp/runs/hand_pose01_pose02_5fold_v4pilot/fold2_c0/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_3": "/root/autodl-tmp/runs/hand_pose01_pose02_5fold_v4pilot/fold3_c0/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_4": "/root/autodl-tmp/runs/hand_pose01_pose02_5fold_v4pilot/fold4_c0/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json"
+  },
+  "C0-real-60ep": {
+    "fold_0": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_0/c0_real_60ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_1": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_1/c0_real_60ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_2": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_2/c0_real_60ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_3": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_3/c0_real_60ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_4": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_4/c0_real_60ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json"
+  },
+  "C0-real-80ep": {
+    "fold_0": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_0/c0_real_80ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_1": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_1/c0_real_80ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_2": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_2/c0_real_80ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_3": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_3/c0_real_80ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_4": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_4/c0_real_80ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json"
+  },
+  "C0-real-120ep": {
+    "fold_0": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_0/c0_real_120ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_1": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_1/c0_real_120ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_2": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_2/c0_real_120ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_3": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_3/c0_real_120ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_4": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_epoch_sweep_5fold_seed22/fold_4/c0_real_120ep/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json"
+  },
+  "C0-real-step": {
+    "fold_0": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_stepmatched_clean_no_roi_5fold_seed22/fold_0/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_1": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_stepmatched_clean_no_roi_5fold_seed22/fold_1/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_2": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_stepmatched_clean_no_roi_5fold_seed22/fold_2/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_3": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_stepmatched_clean_no_roi_5fold_seed22/fold_3/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_4": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c0_stepmatched_clean_no_roi_5fold_seed22/fold_4/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json"
+  },
+  "SD2.1-I2I-noCN-C1-matched": {
+    "fold_0": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c1_matched_5fold_seed22/fold_0/sd21_i2i_no_cn/classifier_runs_c1_matched_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_1": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c1_matched_5fold_seed22/fold_1/sd21_i2i_no_cn/classifier_runs_c1_matched_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_2": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c1_matched_5fold_seed22/fold_2/sd21_i2i_no_cn/classifier_runs_c1_matched_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_3": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c1_matched_5fold_seed22/fold_3/sd21_i2i_no_cn/classifier_runs_c1_matched_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_4": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c1_matched_5fold_seed22/fold_4/sd21_i2i_no_cn/classifier_runs_c1_matched_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json"
+  },
+  "SDXL-I2I-noCN-C1-matched": {
+    "fold_0": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c1_matched_5fold_seed22/fold_0/sdxl_i2i_no_cn/classifier_runs_c1_matched_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_1": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c1_matched_5fold_seed22/fold_1/sdxl_i2i_no_cn/classifier_runs_c1_matched_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_2": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c1_matched_5fold_seed22/fold_2/sdxl_i2i_no_cn/classifier_runs_c1_matched_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_3": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c1_matched_5fold_seed22/fold_3/sdxl_i2i_no_cn/classifier_runs_c1_matched_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_4": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c1_matched_5fold_seed22/fold_4/sdxl_i2i_no_cn/classifier_runs_c1_matched_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json"
+  },
+  "DataDream-I2I-noCN-C1-matched": {
+    "fold_0": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_qc_scaleup/fold_0/datadream_i2i_no_cn/classifier_runs_c2_md_soft_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_1": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_1/datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_2": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_2/datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_3": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_3/datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_4": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_4/datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json"
+  },
+  "DataDream-I2I-noCN-C2-soft": {
+    "fold_0": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_qc_scaleup/fold_0/datadream_i2i_no_cn/classifier_runs_c2_md_soft_textlora/c2_qc/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_1": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_1/datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c2_qc/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_2": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_2/datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c2_qc/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_3": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_3/datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c2_qc/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_4": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_4/datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c2_qc/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json"
+  },
+  "FoundHand-DataDream-I2I-noCN-C1-matched": {
+    "fold_0": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_qc_scaleup/fold_0/foundhand_datadream_i2i_no_cn/classifier_runs_c2_md_soft_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_1": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_1/foundhand_datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_2": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_2/foundhand_datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_3": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_3/foundhand_datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_4": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_4/foundhand_datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c1_raw/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json"
+  },
+  "FoundHand-DataDream-I2I-noCN-C2-soft": {
+    "fold_0": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_qc_scaleup/fold_0/foundhand_datadream_i2i_no_cn/classifier_runs_c2_md_soft_textlora/c2_qc/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_1": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_1/foundhand_datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c2_qc/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_2": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_2/foundhand_datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c2_qc/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_3": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_3/foundhand_datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c2_qc/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json",
+    "fold_4": "/root/autodl-tmp/runs/hand_synth_expansion_qc/c2_md_5fold_seed22/fold_4/foundhand_datadream_i2i_no_cn/classifier_runs_c2_md_separable_textlora/c2_qc/seed22/hand_nutrition/clipViT-B/16/n_img_per_cls_full/baseline/lr1e-05_wd0.0001/metrics.json"
+  }
+}

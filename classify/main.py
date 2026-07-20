@@ -70,9 +70,35 @@ def load_data_loader(args, descriptor_cache=None):
             args, "is_hand_subject_balanced", False
         ),
         hand_subjects_per_class=getattr(args, "hand_subjects_per_class", 12),
+        is_hand_v2g_mixed_sampling=getattr(
+            args, "is_hand_v2g_mixed_sampling", False
+        ),
+        hand_v2g_synth_per_compound=getattr(
+            args, "hand_v2g_synth_per_compound", 3
+        ),
+        hand_v2g_synth_poses=getattr(args, "hand_v2g_synth_poses", "all"),
+        hand_v2g_strength_balanced=getattr(
+            args, "hand_v2g_strength_balanced", False
+        ),
+        is_hand_pose02_v3_mixed_sampling=getattr(
+            args, "is_hand_pose02_v3_mixed_sampling", False
+        ),
+        hand_pose02_v3_real_per_class=getattr(
+            args, "hand_pose02_v3_real_per_class", 10
+        ),
+        hand_pose02_v3_synth_per_class=getattr(
+            args, "hand_pose02_v3_synth_per_class", 2
+        ),
+        hand_pose02_v3_synth_pool_per_class=getattr(
+            args, "hand_pose02_v3_synth_pool_per_class", 49
+        ),
+        hand_pose02_max_synth_per_parent_per_epoch=getattr(
+            args, "hand_pose02_max_synth_per_parent_per_epoch", 1
+        ),
         sampling_seed=args.seed,
         sampling_history_path=(getattr(args, "sampling_history_path", None)
                                or ospj(args.output_dir, "sampling_history.json")),
+        hand_transform_profile=getattr(args, "hand_transform_profile", "legacy"),
     )
     return train_loader, test_loader
 
@@ -111,14 +137,14 @@ def main(args):
     # ==================================================
     descriptor_cache = None
     if getattr(args, "use_roi_aux_head", False) and not getattr(args, "eval_only", False):
+        # 仅保留面部实验的 ROI 描述符辅助监督。手部实验的 ROI 仅用于 C2 候选筛选，
+        # 不再进入分类器训练链路。
         from roi_descriptor import ROIDescriptorCache
-
         descriptor_cache = ROIDescriptorCache(
             cache_path=args.roi_descriptor_cache_path,
             model_path=args.mediapipe_model_path,
         )
         descriptor_cache.build(_infer_roi_descriptor_dirs(args))
-
     # ==================================================
     # Data loader
     # ==================================================
@@ -139,6 +165,7 @@ def main(args):
             clip_download_dir=args.clip_download_dir,
             clip_version=args.clip_version,
             use_roi_aux_head=getattr(args, "use_roi_aux_head", False),
+            roi_descriptor_dim=getattr(args, "roi_descriptor_dim", 4),
         )
         params_groups = model.learnable_params()
     elif args.model_type == "resnet50": 
@@ -407,7 +434,6 @@ def train_one_epoch(
                     loss = criterion(logit, label)
             else:
                 loss = criterion(logit, label)
-
             if (
                 getattr(args, "use_roi_aux_head", False)
                 and descriptor_matches_image
@@ -484,9 +510,10 @@ def eval(model, criterion, data_loader, epoch, fp16_scaler, args):
 
     model.eval()
 
-    for it, (image, label) in enumerate(
+    for it, batch in enumerate(
         metric_logger.log_every(data_loader, 100, header)
     ):
+        image, label = batch
 
         image = image.cuda(non_blocking=True)
         label = label.cuda(non_blocking=True)
@@ -734,7 +761,8 @@ def analyze_predictions(args, model, data_loader):
     all_targets = []
     all_probs = [] 
     
-    for batch_idx, (image, label) in enumerate(data_loader):
+    for batch_idx, batch in enumerate(data_loader):
+        image, label = batch
         image = image.cuda(non_blocking=True)
         label = label.cuda(non_blocking=True)
         

@@ -35,19 +35,60 @@ from util_data import SUBSET_NAMES, TEMPLATES_SMALL
 #     ],
 # }
 
+# 原始提示词
+# HAND_CLASS_PROMPTS = {
+#     "malnourished_hand": [
+#         "a clinical photograph of thin and bony hands with reduced soft tissue",
+#         "a close-up clinical image of wasted hands with reduced muscle and fat",
+#         "a clinical photograph of hands showing reduced fullness in the web space between the thumb and index finger",
+#     ],
+#     "normal_hand": [
+#         "a clinical photograph of healthy hands with normal soft tissue",
+#         "a close-up clinical image of healthy hands with normal muscle and fat",
+#         "a clinical photograph of hands showing preserved fullness in the web space between the thumb and index finger",
+#     ],
+# }
+
+
+# HAND_CLASS_PROMPTS = {
+#     "malnourished_hand": [
+#         "a clinical photograph of hands with relatively reduced muscle fullness",
+#         "a clinical photograph of hands with reduced soft tissue coverage over the back of the hand",
+#         "a clinical photograph of hands with reduced fullness in the area between the thumb and index finger on the back of the hand",
+#     ],
+#     "normal_hand": [
+#         "a clinical photograph of hands with preserved muscle fullness",
+#         "a clinical photograph of hands with preserved soft tissue coverage over the back of the hand",
+#         "a clinical photograph of hands with preserved fullness in the area between the thumb and index finger on the back of the hand",
+#     ],
+# }
+
+# HAND_CLASS_PROMPTS = {
+#     "malnourished_hand": [
+#         "a clinical photograph of the backs of both hands of an older adult with relatively reduced muscle fullness",
+#         "a clinical photograph of the backs of both hands of an older adult with relatively reduced soft tissue coverage",
+#         "a clinical photograph of the backs of both hands of an older adult with relatively reduced fullness in the area between the thumb and index finger on the back of the hand",
+#     ],
+#     "normal_hand": [
+#         "a clinical photograph of the backs of both hands of an older adult with relatively preserved muscle fullness",
+#         "a clinical photograph of the backs of both hands of an older adult with relatively preserved soft tissue coverage",
+#         "a clinical photograph of the backs of both hands of an older adult with relatively preserved fullness in the area between the thumb and index finger on the back of the hand",
+#     ],
+# }
+
+# 最终提示词
 HAND_CLASS_PROMPTS = {
     "malnourished_hand": [
-        "a clinical photograph of thin and bony hands with reduced soft tissue",
-        "a close-up clinical image of wasted hands with reduced muscle and fat",
-        "a clinical photograph of hands showing reduced fullness in the web space between the thumb and index finger",
+        "a clinical photograph of an older adult's hand backs with reduced muscle fullness",
+        "a clinical photograph of an older adult's hand backs with reduced soft tissue fullness",
+        "a clinical photograph of an older adult's hand backs with reduced fullness between the thumb and index finger",
     ],
     "normal_hand": [
-        "a clinical photograph of healthy hands with normal soft tissue",
-        "a close-up clinical image of healthy hands with normal muscle and fat",
-        "a clinical photograph of hands showing preserved fullness in the web space between the thumb and index finger",
+        "a clinical photograph of an older adult's hand backs with preserved muscle fullness",
+        "a clinical photograph of an older adult's hand backs with preserved soft tissue fullness",
+        "a clinical photograph of an older adult's hand backs with preserved fullness between the thumb and index finger",
     ],
 }
-
 
 def get_class_texts(dataset, classname, dataset_name, templates):
     """手部返回固定提示词，其他数据集保持原有模板构造方式。"""
@@ -84,6 +125,7 @@ class CLIP(nn.Module):
         clip_download_dir="model_clip",
         clip_version="ViT-B/16",
         use_roi_aux_head: bool = False,
+        roi_descriptor_dim: int = 4,
     ):
         super().__init__()
         self.dataset = dataset
@@ -127,7 +169,7 @@ class CLIP(nn.Module):
             self.roi_head = nn.Sequential(
                 nn.Linear(image_feature_dim, 128),
                 nn.ReLU(),
-                nn.Linear(128, 4),
+                nn.Linear(128, roi_descriptor_dim),
             )
 
         # enable checkpointing for text transformer

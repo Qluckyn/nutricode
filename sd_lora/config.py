@@ -431,7 +431,7 @@ def parse_args(input_args=None):
     # 手部四类目录直接位于 fold_0 下，不能自动追加 seed22/seed0；面部仍保留原拼接规则。
     if args.fewshot_data_dir_override is not None:
         args.fewshot_data_dir = args.fewshot_data_dir_override
-    elif args.dataset == "hand_nutrition":
+    elif args.dataset in {"hand_nutrition", "hand_nutrition_pose02", "hand_nutrition_allpose"}:
         args.fewshot_data_dir = args_local["fewshot_data_dir"][args.dataset]
     else:
         args.fewshot_data_dir = ospj(
@@ -439,4 +439,3 @@ def parse_args(input_args=None):
             args.fewshot_seed,
         )
     return args
-

@@ -1,9 +1,0 @@
-models文件下存放的是模型代码，包含CLIP和resnet50，但是我们没有选择resnet50
-real_test文件下存放的是真实测试数据，每个类别提供了两张作为参考
-real_train文件下存放的是真实训练数据，每个类别提供了两张作为参考
-synth_train文件下存放的是合成数据，同样每个类别提供了两张作为参考
-
-bash_run.sh为训练运行脚本
-data.py为数据处理脚本
-main.py为训练和评估脚本
-util_data.py和utils.py则提供类别处理和训练所需的工具

@@ -261,12 +261,58 @@ def get_args():
         help="是否启用保留完整双手的方形补边和轻量几何增强。",
     )
     parser.add_argument(
+        "--hand_transform_profile",
+        type=str,
+        default="legacy",
+        choices=("legacy", "v2c_deterministic"),
+        help=(
+            "手部预处理方案。v2c_deterministic 仅做确定性方形补边和缩放，"
+            "供已离线记录增强参数的 V2-C 数据使用。"
+        ),
+    )
+    parser.add_argument(
         "--is_hand_subject_balanced", type=str2bool, default=False,
         help="是否按受试者执行手部12:12动态平衡采样。",
     )
     parser.add_argument(
         "--hand_subjects_per_class", type=int, default=12,
         help="手部动态采样时每个类别每轮使用的受试者数。",
+    )
+    parser.add_argument(
+        "--is_hand_v2g_mixed_sampling", type=str2bool, default=False,
+        help="启用 V2-G 专用真实受试者平衡 + 四复合类别合成图采样。",
+    )
+    parser.add_argument(
+        "--hand_v2g_synth_per_compound", type=int, default=3,
+        help="V2-G 每轮从每个营养类别×姿势组合抽取的合成图数量。",
+    )
+    parser.add_argument(
+        "--hand_v2g_synth_poses", type=str, default="all", choices=("all", "02"),
+        help="V2-G混合采样使用的合成姿势；P1-T诊断组只使用pose02。",
+    )
+    parser.add_argument(
+        "--hand_v2g_strength_balanced", type=str2bool, default=False,
+        help="按文件名中的__strength_sXXX__标记，对每个类别×姿势内的合成强度等量抽样。",
+    )
+    parser.add_argument(
+        "--is_hand_pose02_v3_mixed_sampling", type=str2bool, default=False,
+        help="启用Pose02 V3正式实验的20张真实图加4张合成图采样。",
+    )
+    parser.add_argument(
+        "--hand_pose02_v3_real_per_class", type=int, default=10,
+        help="Pose02 V3每轮每类真实图数量，正式协议固定为10。",
+    )
+    parser.add_argument(
+        "--hand_pose02_v3_synth_per_class", type=int, default=2,
+        help="Pose02 V3每轮每类合成图数量，正式协议固定为2。",
+    )
+    parser.add_argument(
+        "--hand_pose02_v3_synth_pool_per_class", type=int, default=49,
+        help="Pose02混合采样时每折每类冻结的合成池大小。",
+    )
+    parser.add_argument(
+        "--hand_pose02_max_synth_per_parent_per_epoch", type=int, default=1,
+        help="Pose02混合采样时每类每轮单一真实父受试者的合成图上限。",
     )
     parser.add_argument(
         "--sampling_history_path", type=str2none, default=None,
@@ -287,7 +333,7 @@ def get_args():
     parser.add_argument("--datadream_epoch", type=int2none, default=200)
     parser.add_argument("--datadream_train_text_encoder", type=str2bool, default=True)
 
-    # ROI 辅助监督相关
+    # 面部 ROI 辅助监督相关；手部实验不使用该训练机制。
     parser.add_argument("--use_roi_aux_head", type=str2bool, default=False,
                         help="是否启用 ROI 描述符辅助回归头")
     parser.add_argument("--alpha_roi", type=float, default=0.1,
@@ -298,6 +344,10 @@ def get_args():
     parser.add_argument("--mediapipe_model_path", type=str,
                         default="/root/autodl-tmp/face_landmarker.task",
                         help="MediaPipe face_landmarker.task 文件路径")
+    parser.add_argument("--roi_descriptor_mode", choices=("face",), default="face",
+                        help="ROI 描述符类型；当前仅支持面部模式")
+    parser.add_argument("--roi_descriptor_dim", type=int, default=4,
+                        help="ROI 辅助头输出维度")
 
     # stable diffusion
     parser.add_argument("--is_synth_train", type=str2bool, default=False)
@@ -422,5 +472,3 @@ def get_args():
     set_follow_up_configs(args)
 
     return args
-
-

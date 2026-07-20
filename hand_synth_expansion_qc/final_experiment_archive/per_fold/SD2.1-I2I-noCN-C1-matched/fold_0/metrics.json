@@ -1,0 +1,100 @@
+{
+  "dataset": "hand_nutrition",
+  "positive_class_name": "malnourished_hand",
+  "hand_pose": "02",
+  "classification_threshold": 0.5,
+  "overall_accuracy_percent": 61.53846153846154,
+  "confusion_matrix": [
+    [
+      3,
+      0
+    ],
+    [
+      5,
+      5
+    ]
+  ],
+  "class_accuracies": [
+    {
+      "class": "malnourished_hand",
+      "accuracy": 100.0,
+      "correct": 3,
+      "total": 3
+    },
+    {
+      "class": "normal_hand",
+      "accuracy": 50.0,
+      "correct": 5,
+      "total": 10
+    }
+  ],
+  "image_level_metrics": {
+    "accuracy": 0.6153846153846154,
+    "balanced_accuracy": 0.75,
+    "roc_auc": 0.7666666666666667,
+    "pr_auc": 0.4666666666666667,
+    "precision": 0.375,
+    "sensitivity": 1.0,
+    "specificity": 0.5,
+    "acc": 0.6153846153846154,
+    "auc": 0.7666666666666667,
+    "f1": 0.5454545454545454,
+    "sen": 1.0,
+    "spe": 0.5,
+    "mcc": 0.4330127018922193,
+    "threshold": 0.5,
+    "tp": 3,
+    "tn": 5,
+    "fp": 5,
+    "fn": 0
+  },
+  "pose_level_metrics": {
+    "pose_02": {
+      "accuracy": 0.6153846153846154,
+      "balanced_accuracy": 0.75,
+      "roc_auc": 0.7666666666666667,
+      "pr_auc": 0.4666666666666667,
+      "precision": 0.375,
+      "sensitivity": 1.0,
+      "specificity": 0.5,
+      "acc": 0.6153846153846154,
+      "auc": 0.7666666666666667,
+      "f1": 0.5454545454545454,
+      "sen": 1.0,
+      "spe": 0.5,
+      "mcc": 0.4330127018922193,
+      "threshold": 0.5,
+      "tp": 3,
+      "tn": 5,
+      "fp": 5,
+      "fn": 0
+    }
+  },
+  "subject_level_metrics": {
+    "accuracy": 0.6153846153846154,
+    "balanced_accuracy": 0.75,
+    "roc_auc": 0.7666666666666667,
+    "pr_auc": 0.4666666666666667,
+    "precision": 0.375,
+    "sensitivity": 1.0,
+    "specificity": 0.5,
+    "acc": 0.6153846153846154,
+    "auc": 0.7666666666666667,
+    "f1": 0.5454545454545454,
+    "sen": 1.0,
+    "spe": 0.5,
+    "mcc": 0.4330127018922193,
+    "threshold": 0.5,
+    "tp": 3,
+    "tn": 5,
+    "fp": 5,
+    "fn": 0
+  },
+  "pose_agreement": {
+    "applicable": false,
+    "complete_subject_pairs": 0,
+    "agreement_count": 0,
+    "disagreement_count": 0,
+    "agreement_rate": null
+  }
+}

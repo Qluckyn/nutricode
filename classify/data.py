@@ -13,6 +13,8 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, ConcatDataset, Sampler
 import torchvision as tv
 from collections import defaultdict
+
+from pose02_v3_sampler import HandPose02V3MixedSampler
 import warnings
 
 from utils import make_dirs
@@ -67,7 +69,7 @@ class FixedLabelImageFolder(Dataset):
             if desc is not None:
                 desc_tensor = torch.tensor(desc, dtype=torch.float32)
             else:
-                desc_tensor = torch.full((4,), float('nan'))
+                desc_tensor = torch.full((getattr(self.descriptor_cache, "descriptor_dim", 4),), float('nan'))
             return image, label, desc_tensor
         return image, label
 
@@ -119,7 +121,7 @@ class PadToSquare:
         )
 
 
-def get_hand_transforms(model_type):
+def get_hand_transforms(model_type, profile="legacy"):
     """返回手部专用的轻量训练增强和确定性测试预处理。"""
     if model_type == "clip":
         norm_mean, norm_std = CLIP_NORM_MEAN, CLIP_NORM_STD
@@ -154,6 +156,11 @@ def get_hand_transforms(model_type):
         tv.transforms.ToTensor(),
         tv.transforms.Normalize(norm_mean, norm_std),
     ])
+    if profile == "v2c_deterministic":
+        # V2-C 增强已离线生成并逐图留档，训练时禁止再次随机翻转或裁切。
+        return test_transform, test_transform
+    if profile != "legacy":
+        raise ValueError(f"不支持的手部预处理方案：{profile}")
     return train_transform, test_transform
 
 
@@ -168,7 +175,7 @@ class HandSubjectBalancedSampler(Sampler):
         self.history_path = history_path
         self.history = {}
         self.hand_pose = hand_pose
-        self.images_per_subject = 1 if hand_pose in {"01", "02"} else 2
+        self.images_per_subject = None
 
         required_classes = {"malnourished_hand", "normal_hand"}
         if set(dataset.class_to_idx) != required_classes:
@@ -184,17 +191,27 @@ class HandSubjectBalancedSampler(Sampler):
             subject_id = match.group("subject")
             self.subject_indices[label].setdefault(subject_id, []).append(index)
 
-        for label, groups in self.subject_indices.items():
-            incomplete = {
-                subject_id: len(indices)
-                for subject_id, indices in groups.items()
-                if len(indices) != self.images_per_subject
+        # V2-C 会为真实图增加等量后代；仍要求每名受试者贡献完全相同。
+        subject_image_counts = {
+            len(indices)
+            for groups in self.subject_indices.values()
+            for indices in groups.values()
+        }
+        if len(subject_image_counts) != 1:
+            details = {
+                label: {
+                    subject_id: len(indices)
+                    for subject_id, indices in groups.items()
+                }
+                for label, groups in self.subject_indices.items()
             }
-            if incomplete:
-                raise ValueError(
-                    f"hand_pose={self.hand_pose}时每名受试者应有"
-                    f"{self.images_per_subject}张图片：label={label}, {incomplete}"
-                )
+            raise ValueError(f"每名手部受试者的图片数必须一致：{details}")
+        self.images_per_subject = subject_image_counts.pop()
+        minimum = 1 if hand_pose in {"01", "02"} else 2
+        if self.images_per_subject < minimum:
+            raise ValueError(
+                f"hand_pose={self.hand_pose}时每名受试者至少应有{minimum}张图片"
+            )
 
         self.mal_subjects = sorted(self.subject_indices[self.mal_label], key=int)
         self.normal_subjects = sorted(self.subject_indices[self.normal_label], key=int)
@@ -282,6 +299,174 @@ class HandSubjectBalancedSampler(Sampler):
             os.makedirs(os.path.dirname(history_path), exist_ok=True)
             with open(history_path, "w", encoding="utf-8") as f:
                 json.dump(self.history, f, ensure_ascii=False, indent=2)
+        return iter(indices)
+
+
+class HandV2GMixedSampler(Sampler):
+    """V2-G 专用采样：真实受试者 12:12，合成图按类别和姿势等量抽取。"""
+
+    SYNTH_MARKER = "__v2g_synth__"
+    STRENGTH_PATTERN = re.compile(r"__strength_(s\d{3})__")
+
+    def __init__(
+        self, dataset, subjects_per_class=12, synth_per_compound=3,
+        synth_poses="all", strength_balanced=False, seed=22, history_path=None,
+    ):
+        self.dataset = dataset
+        self.subjects_per_class = int(subjects_per_class)
+        self.synth_per_compound = int(synth_per_compound)
+        self.synth_poses = ("01", "02") if synth_poses == "all" else (str(synth_poses),)
+        self.strength_balanced = bool(strength_balanced)
+        if not set(self.synth_poses) <= {"01", "02"}:
+            raise ValueError(f"V2-G 合成姿势参数无效：{self.synth_poses}")
+        self.seed = int(seed)
+        self.epoch = 0
+        self.history_path = history_path
+        self.history = {}
+        required_classes = {"malnourished_hand", "normal_hand"}
+        if set(dataset.class_to_idx) != required_classes:
+            raise ValueError("V2-G 混合采样要求两个固定手部类别")
+        self.mal_label = dataset.class_to_idx["malnourished_hand"]
+        self.normal_label = dataset.class_to_idx["normal_hand"]
+        self.real_subject_indices = {self.mal_label: {}, self.normal_label: {}}
+        self.synth_indices = defaultdict(list)
+        self.synth_strength_indices = defaultdict(list)
+
+        for index, (path, label) in enumerate(dataset.samples):
+            filename = os.path.basename(path)
+            match = HAND_SUBJECT_PATTERN.match(filename)
+            if not match:
+                raise ValueError(f"V2-G 无法解析父受试者和姿势：{path}")
+            subject_id, pose = match.group("subject"), match.group("pose")
+            if self.SYNTH_MARKER in filename:
+                self.synth_indices[(label, pose)].append(index)
+                if self.strength_balanced:
+                    strength_match = self.STRENGTH_PATTERN.search(filename)
+                    if not strength_match:
+                        raise ValueError(f"强度均衡采样缺少文件名强度标记：{path}")
+                    self.synth_strength_indices[
+                        (label, pose, strength_match.group(1))
+                    ].append(index)
+            else:
+                self.real_subject_indices[label].setdefault(subject_id, []).append(index)
+
+        # C3 的真实部分必须保持每名训练受试者恰好两个姿势，合成后代另行抽样。
+        for label, subjects in self.real_subject_indices.items():
+            bad = {
+                subject_id: len(indices) for subject_id, indices in subjects.items()
+                if len(indices) != 2
+            }
+            if bad:
+                raise ValueError(f"V2-G 真实受试者贡献不是两张：label={label}, {bad}")
+        self.mal_subjects = sorted(
+            self.real_subject_indices[self.mal_label], key=int
+        )
+        self.normal_subjects = sorted(
+            self.real_subject_indices[self.normal_label], key=int
+        )
+        if len(self.mal_subjects) != self.subjects_per_class:
+            raise ValueError("V2-G 营养不良真实训练受试者数量不符合预注册值")
+        if len(self.normal_subjects) < self.subjects_per_class:
+            raise ValueError("V2-G 正常真实训练受试者不足")
+        # 保存允许抽样的复合组，避免数据目录中存在其他姿势时被意外选入。
+        self.selected_synth_groups = {
+            (label, pose)
+            for label in (self.mal_label, self.normal_label)
+            for pose in self.synth_poses
+        }
+        for group in self.selected_synth_groups:
+            count = len(self.synth_indices[group])
+            if count < self.synth_per_compound:
+                raise ValueError(
+                    f"V2-G 合成复合类别不足：group={group}, "
+                    f"required={self.synth_per_compound}, actual={count}"
+                )
+        self.strengths = ()
+        if self.strength_balanced:
+            self.strengths = tuple(sorted({key[2] for key in self.synth_strength_indices}))
+            if not self.strengths or self.synth_per_compound % len(self.strengths):
+                raise ValueError(
+                    "每个复合类别的合成抽样数必须能被强度档数整除："
+                    f"synth_per_compound={self.synth_per_compound}, strengths={self.strengths}"
+                )
+            per_strength = self.synth_per_compound // len(self.strengths)
+            for label, pose in self.selected_synth_groups:
+                for strength in self.strengths:
+                    count = len(self.synth_strength_indices[(label, pose, strength)])
+                    if count < per_strength:
+                        raise ValueError(
+                            "复合类别内强度样本不足："
+                            f"group={(label, pose)}, strength={strength}, "
+                            f"required={per_strength}, actual={count}"
+                        )
+
+    def set_epoch(self, epoch):
+        self.epoch = int(epoch)
+
+    def __len__(self):
+        real_count = self.subjects_per_class * 2 * 2
+        synth_count = 2 * len(self.synth_poses) * self.synth_per_compound
+        return real_count + synth_count
+
+    def __iter__(self):
+        rng = random.Random(self.seed + self.epoch)
+        selected_normal = sorted(
+            rng.sample(self.normal_subjects, self.subjects_per_class), key=int
+        )
+        indices = []
+        for subject_id in self.mal_subjects:
+            indices.extend(self.real_subject_indices[self.mal_label][subject_id])
+        for subject_id in selected_normal:
+            indices.extend(self.real_subject_indices[self.normal_label][subject_id])
+
+        selected_synth = []
+        for group in sorted(self.selected_synth_groups):
+            if self.strength_balanced:
+                per_strength = self.synth_per_compound // len(self.strengths)
+                chosen = []
+                for strength in self.strengths:
+                    chosen.extend(rng.sample(
+                        self.synth_strength_indices[(*group, strength)], per_strength
+                    ))
+            else:
+                chosen = rng.sample(self.synth_indices[group], self.synth_per_compound)
+            indices.extend(chosen)
+            selected_synth.extend(chosen)
+        rng.shuffle(indices)
+
+        real_count = self.subjects_per_class * 2 * 2
+        synth_count = len(selected_synth)
+        record = {
+            "epoch": self.epoch,
+            "seed": self.seed + self.epoch,
+            "malnourished_real_subject_ids": self.mal_subjects,
+            "normal_real_subject_ids": selected_normal,
+            "real_count": real_count,
+            "synthetic_count": synth_count,
+            "real_fraction": real_count / (real_count + synth_count),
+            "synthetic_to_real_ratio": synth_count / real_count,
+            "strength_balanced": self.strength_balanced,
+            "selected_strength_counts": {
+                strength: sum(
+                    f"__strength_{strength}__" in os.path.basename(
+                        self.dataset.samples[index][0]
+                    ) for index in selected_synth
+                ) for strength in self.strengths
+            } if self.strength_balanced else {},
+            "selected_synthetic_paths": [
+                self.dataset.samples[index][0] for index in selected_synth
+            ],
+        }
+        self.history[str(self.epoch)] = record
+        print(
+            f"[V2-G混合采样] epoch={self.epoch}, real={real_count}, "
+            f"synthetic={synth_count}, real_fraction={record['real_fraction']:.3f}"
+        )
+        if self.history_path:
+            history_path = os.path.abspath(self.history_path)
+            os.makedirs(os.path.dirname(history_path), exist_ok=True)
+            with open(history_path, "w", encoding="utf-8") as handle:
+                json.dump(self.history, handle, ensure_ascii=False, indent=2)
         return iter(indices)
 
 
@@ -483,7 +668,7 @@ class DatasetSynthImage(Dataset):
             if desc is not None:
                 desc_tensor = torch.tensor(desc, dtype=torch.float32)
             else:
-                desc_tensor = torch.full((4,), float('nan'))
+                desc_tensor = torch.full((getattr(self.descriptor_cache, "descriptor_dim", 4),), float('nan'))
             if self.is_pooled_fewshot:
                 return image, image_label, is_real, desc_tensor
             return image, image_label, desc_tensor
@@ -712,13 +897,25 @@ def get_data_loader(
     hand_pose="all",
     is_hand_subject_balanced=False,
     hand_subjects_per_class=12,
+    is_hand_v2g_mixed_sampling=False,
+    hand_v2g_synth_per_compound=3,
+    hand_v2g_synth_poses="all",
+    hand_v2g_strength_balanced=False,
+    is_hand_pose02_v3_mixed_sampling=False,
+    hand_pose02_v3_real_per_class=10,
+    hand_pose02_v3_synth_per_class=2,
+    hand_pose02_v3_synth_pool_per_class=49,
+    hand_pose02_max_synth_per_parent_per_epoch=1,
     sampling_seed=22,
     sampling_history_path=None,
+    hand_transform_profile="legacy",
 ):
     # 原始逻辑：train_transform, test_transform = get_transforms(model_type)
     # 仅手部入口启用方形补边和轻量增强，其他实验保持原预处理。
     if use_hand_transforms:
-        train_transform, test_transform = get_hand_transforms(model_type)
+        train_transform, test_transform = get_hand_transforms(
+            model_type, profile=hand_transform_profile
+        )
     else:
         train_transform, test_transform = get_transforms(model_type)
     train_loader = None
@@ -835,6 +1032,13 @@ def get_data_loader(
             raise ValueError("Please specify a valid dataset.")
 
         hand_sampler = None
+        sampling_modes = (
+            is_hand_subject_balanced,
+            is_hand_v2g_mixed_sampling,
+            is_hand_pose02_v3_mixed_sampling,
+        )
+        if sum(bool(mode) for mode in sampling_modes) > 1:
+            raise ValueError("三种手部采样模式最多只能启用一种")
         if is_hand_subject_balanced:
             if not isinstance(train_dataset, FixedLabelImageFolder):
                 raise TypeError("手部动态平衡采样仅支持 FixedLabelImageFolder")
@@ -844,6 +1048,34 @@ def get_data_loader(
                 seed=sampling_seed,
                 history_path=sampling_history_path,
                 hand_pose=hand_pose,
+            )
+        elif is_hand_v2g_mixed_sampling:
+            if not isinstance(train_dataset, FixedLabelImageFolder):
+                raise TypeError("V2-G 混合采样仅支持 FixedLabelImageFolder")
+            if hand_pose != "all":
+                raise ValueError("V2-G 混合采样要求同时使用 pose01 和 pose02")
+            hand_sampler = HandV2GMixedSampler(
+                dataset=train_dataset,
+                subjects_per_class=hand_subjects_per_class,
+                synth_per_compound=hand_v2g_synth_per_compound,
+                synth_poses=hand_v2g_synth_poses,
+                strength_balanced=hand_v2g_strength_balanced,
+                seed=sampling_seed,
+                history_path=sampling_history_path,
+            )
+        elif is_hand_pose02_v3_mixed_sampling:
+            if not isinstance(train_dataset, FixedLabelImageFolder):
+                raise TypeError("Pose02 V3混合采样仅支持 FixedLabelImageFolder")
+            if hand_pose != "02":
+                raise ValueError("Pose02 V3混合采样要求hand_pose=02")
+            hand_sampler = HandPose02V3MixedSampler(
+                dataset=train_dataset,
+                real_per_class=hand_pose02_v3_real_per_class,
+                synth_per_class=hand_pose02_v3_synth_per_class,
+                synth_pool_per_class=hand_pose02_v3_synth_pool_per_class,
+                max_synth_per_parent_per_epoch=hand_pose02_max_synth_per_parent_per_epoch,
+                seed=sampling_seed,
+                history_path=sampling_history_path,
             )
 
         # 原始训练 DataLoader 逻辑保留如下：
@@ -922,7 +1154,7 @@ def get_data_loader(
         test_dataset = FixedLabelImageFolder(
             root=real_test_data_dir,
             transform=test_transform,
-            class_names=subset_names
+            class_names=subset_names,
         )
         test_dataset = filter_hand_dataset_by_pose(test_dataset, hand_pose)
         # 打印测试集标签映射

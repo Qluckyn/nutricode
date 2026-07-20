@@ -452,6 +452,17 @@ SUBSET_NAMES = {
          'normal_hand_pose01',
          'normal_hand_pose02',
      ],
+     # V2正式实验仅训练pose02，避免为了兼容旧四类接口混入无关pose01图片。
+     'hand_nutrition_pose02': [
+         'malnourished_hand_pose02',
+         'normal_hand_pose02',
+     ],
+     # 合成扩增主实验使用两类LoRA；每类同时纳入pose01和pose02，
+     # 姿势由后续OpenPose条件控制，而不是拆成四个彼此独立的语义模型。
+     'hand_nutrition_allpose': [
+         'malnourished_hand',
+         'normal_hand',
+     ],
   #  'my_dataset': ['normal_front_face', 'normal_left_profile_face', 
  #   'normal_left_three-quarter_face', 'normal_right_profile_face', 'normal_right_three-quarter_face']
 #    'my_dataset': ['normal_front_face', 
@@ -462,17 +473,25 @@ SUBSET_NAMES = {
 # 手部 LoRA 使用固定的临床语义和姿势描述，不复用面部/通用物体模板。
 # pose01 为双手握拳；pose02 为双手平放展开且虎口可见。
 HAND_LORA_PROMPTS = {
+    'malnourished_hand': (
+        'a top-down clinical photograph of thin and bony human hands with reduced '
+        'soft tissue, visible tendons and prominent knuckles, showing malnutrition '
+        'related hand features, white plain background'
+    ),
+    'normal_hand': (
+        'a top-down clinical photograph of healthy human hands with normal soft tissue '
+        'and smooth contours, showing normal nutritional status hand features, '
+        'white plain background'
+    ),
     'malnourished_hand_pose01': (
         'a top-down clinical photograph of thin and bony hands with reduced '
         'soft tissue, both hands forming closed fists, the backs of both hands '
         'facing the camera, both wrists and both complete hands visible'
     ),
     'malnourished_hand_pose02': (
-        'a top-down clinical photograph of thin and bony hands with reduced '
-        'soft tissue and reduced fullness in the first web spaces between the '
-        'thumbs and index fingers, both hands lying flat, all fingers extended '
-        'and naturally spread, the backs of both hands facing the camera, both '
-        'wrists and both complete hands visible'
+        'a top-down clinical photograph of the backs of two older adult hands with '
+        'reduced muscle fullness, reduced soft tissue fullness, and reduced '
+        'fullness between the thumbs and index fingers'
     ),
     'normal_hand_pose01': (
         'a top-down clinical photograph of healthy hands with normal soft-tissue '
@@ -480,10 +499,9 @@ HAND_LORA_PROMPTS = {
         'facing the camera, both wrists and both complete hands visible'
     ),
     'normal_hand_pose02': (
-        'a top-down clinical photograph of healthy hands with preserved fullness '
-        'in the first web spaces between the thumbs and index fingers, both hands '
-        'lying flat, all fingers extended and naturally spread, the backs of both '
-        'hands facing the camera, both wrists and both complete hands visible'
+        'a top-down clinical photograph of the backs of two older adult hands with '
+        'preserved muscle fullness, preserved soft tissue fullness, and preserved '
+        'fullness between the thumbs and index fingers'
     ),
 }
 

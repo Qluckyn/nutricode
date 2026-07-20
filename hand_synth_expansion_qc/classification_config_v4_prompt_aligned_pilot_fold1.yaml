@@ -1,0 +1,23 @@
+# V4 小规模预实验：只比较 C0 与 C1，所有分类采样设置固定。
+stage: HAND-SYNTH-EXPANSION-QC-POSE02-V4-PROMPT-ALIGNED-PILOT
+fold: 1
+classification_seed: 22
+output_root: /root/autodl-tmp/runs/hand_synth_expansion_qc/fold_1_pose02
+generation_output_root: /root/autodl-tmp/runs/hand_synth_expansion_qc/fold_1_pose02/generation_v4_prompt_aligned_pilot
+selection_dir: selection_c1_pilot
+classifier_data_dir: classifier_data_v4_prompt_aligned_pilot
+data:
+  root: /root/autodl-tmp/data_hand/pose01_pose02_5fold_seed22
+generation:
+  denoising_strengths: [0.15, 0.22, 0.30]
+classification:
+  epochs: 40
+  batch_size: 8
+  real_per_class_per_epoch: 12
+  synthetic_per_class_per_epoch: 36
+  synthetic_pool_per_class: 90
+  max_synthetic_per_parent_per_epoch: 4
+  synthetic_targets_by_strength:
+    "0.15": 30
+    "0.22": 30
+    "0.3": 30

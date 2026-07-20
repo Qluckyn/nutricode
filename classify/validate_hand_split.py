@@ -62,7 +62,43 @@ def _validate_global_subject_separation(scanned):
         )
 
 
-def validate_split(data_root: Path, manifest_path: Path, expected_counts):
+def _load_manifest_split(manifest_path: Path, fold: int | None):
+    """读取扁平划分或五折清单中的一个折，并统一为 splits 结构。"""
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"缺少划分清单：{manifest_path}")
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if fold is None:
+        if "splits" not in manifest:
+            raise ValueError(
+                "清单不包含扁平 splits 字段；五折数据请显式传入 --fold=<编号>"
+            )
+        return manifest
+
+    fold_key = f"fold_{fold}"
+    folds = manifest.get("folds")
+    if not isinstance(folds, dict) or fold_key not in folds:
+        available = sorted(folds) if isinstance(folds, dict) else []
+        raise ValueError(f"清单中不存在 {fold_key}，可用折：{available}")
+    return {
+        "seed": manifest.get("seed"),
+        "splits": folds[fold_key],
+        "fold": fold,
+    }
+
+
+def _expected_counts(manifest):
+    """从清单派生各类别受试者数，兼容每折正常组数量不同的五折划分。"""
+    return {
+        split: {
+            class_name: int(manifest["splits"][split][class_name]["subject_count"])
+            for class_name in CLASS_NAMES
+        }
+        for split in SPLIT_NAMES
+    }
+
+
+def validate_split(data_root: Path, manifest_path: Path, expected_counts, fold=None):
     """执行数量、类别、姿势、清单一致性和 train/test 泄漏检查。"""
     scanned = {
         split: {
@@ -98,9 +134,7 @@ def validate_split(data_root: Path, manifest_path: Path, expected_counts):
             f"受试者数量不符合预期：actual={actual_counts}, expected={expected_counts}"
         )
 
-    if not manifest_path.is_file():
-        raise FileNotFoundError(f"缺少划分清单：{manifest_path}")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest = _load_manifest_split(manifest_path, fold)
     for split in SPLIT_NAMES:
         for class_name in CLASS_NAMES:
             manifest_ids = set(manifest["splits"][split][class_name]["subject_ids"])
@@ -113,6 +147,7 @@ def validate_split(data_root: Path, manifest_path: Path, expected_counts):
         "data_root": str(data_root),
         "manifest": str(manifest_path),
         "seed": manifest.get("seed"),
+        "fold": manifest.get("fold"),
         "subjects": actual_counts,
         "images": {
             split: {
@@ -130,16 +165,30 @@ def main():
         "--data_root",
         type=Path,
         default=Path("/root/autodl-tmp/data_hand/split_seed22"),
-        help="包含 train、test 和 split.json 的划分根目录",
+        help="扁平划分根目录；五折模式下传入包含 fold_<编号>/ 和 split.json 的根目录",
+    )
+    parser.add_argument(
+        "--fold", type=int, default=None,
+        help="可选五折编号；例如 --fold=0 会校验 <data_root>/fold_0",
     )
     args = parser.parse_args()
     data_root = args.data_root.resolve()
-    expected_counts = {
-        "train": {"malnourished_hand": 12, "normal_hand": 42},
-        "test": {"malnourished_hand": 3, "normal_hand": 10},
-    }
+    manifest_path = data_root / "split.json"
+    if args.fold is not None:
+        if args.fold < 0:
+            parser.error("--fold 必须为非负整数")
+        split_root = data_root / f"fold_{args.fold}"
+        manifest = _load_manifest_split(manifest_path, args.fold)
+        expected_counts = _expected_counts(manifest)
+    else:
+        split_root = data_root
+        # 保持扁平数据集的既有固定数量约束。
+        expected_counts = {
+            "train": {"malnourished_hand": 12, "normal_hand": 42},
+            "test": {"malnourished_hand": 3, "normal_hand": 10},
+        }
     summary = validate_split(
-        data_root, data_root / "split.json", expected_counts
+        split_root, manifest_path, expected_counts, fold=args.fold
     )
     print("[OK] 手部数据划分校验通过")
     print(json.dumps(summary, ensure_ascii=False, indent=2))

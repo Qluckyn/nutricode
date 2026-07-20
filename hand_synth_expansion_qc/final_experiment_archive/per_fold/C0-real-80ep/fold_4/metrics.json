@@ -1,0 +1,100 @@
+{
+  "dataset": "hand_nutrition",
+  "positive_class_name": "malnourished_hand",
+  "hand_pose": "02",
+  "classification_threshold": 0.5,
+  "overall_accuracy_percent": 76.92307692307692,
+  "confusion_matrix": [
+    [
+      1,
+      2
+    ],
+    [
+      1,
+      9
+    ]
+  ],
+  "class_accuracies": [
+    {
+      "class": "malnourished_hand",
+      "accuracy": 33.333333333333336,
+      "correct": 1,
+      "total": 3
+    },
+    {
+      "class": "normal_hand",
+      "accuracy": 90.0,
+      "correct": 9,
+      "total": 10
+    }
+  ],
+  "image_level_metrics": {
+    "accuracy": 0.7692307692307693,
+    "balanced_accuracy": 0.6166666666666667,
+    "roc_auc": 0.8666666666666667,
+    "pr_auc": 0.7,
+    "precision": 0.5,
+    "sensitivity": 0.3333333333333333,
+    "specificity": 0.9,
+    "acc": 0.7692307692307693,
+    "auc": 0.8666666666666667,
+    "f1": 0.4,
+    "sen": 0.3333333333333333,
+    "spe": 0.9,
+    "mcc": 0.27247463045653303,
+    "threshold": 0.5,
+    "tp": 1,
+    "tn": 9,
+    "fp": 1,
+    "fn": 2
+  },
+  "pose_level_metrics": {
+    "pose_02": {
+      "accuracy": 0.7692307692307693,
+      "balanced_accuracy": 0.6166666666666667,
+      "roc_auc": 0.8666666666666667,
+      "pr_auc": 0.7,
+      "precision": 0.5,
+      "sensitivity": 0.3333333333333333,
+      "specificity": 0.9,
+      "acc": 0.7692307692307693,
+      "auc": 0.8666666666666667,
+      "f1": 0.4,
+      "sen": 0.3333333333333333,
+      "spe": 0.9,
+      "mcc": 0.27247463045653303,
+      "threshold": 0.5,
+      "tp": 1,
+      "tn": 9,
+      "fp": 1,
+      "fn": 2
+    }
+  },
+  "subject_level_metrics": {
+    "accuracy": 0.7692307692307693,
+    "balanced_accuracy": 0.6166666666666667,
+    "roc_auc": 0.8666666666666667,
+    "pr_auc": 0.7,
+    "precision": 0.5,
+    "sensitivity": 0.3333333333333333,
+    "specificity": 0.9,
+    "acc": 0.7692307692307693,
+    "auc": 0.8666666666666667,
+    "f1": 0.4,
+    "sen": 0.3333333333333333,
+    "spe": 0.9,
+    "mcc": 0.27247463045653303,
+    "threshold": 0.5,
+    "tp": 1,
+    "tn": 9,
+    "fp": 1,
+    "fn": 2
+  },
+  "pose_agreement": {
+    "applicable": false,
+    "complete_subject_pairs": 0,
+    "agreement_count": 0,
+    "disagreement_count": 0,
+    "agreement_rate": null
+  }
+}
